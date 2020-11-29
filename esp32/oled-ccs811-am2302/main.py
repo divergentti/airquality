@@ -31,6 +31,7 @@ Asynkroninen MQTT: https://github.com/peterhinch/micropython-mqtt/blob/master/mq
 21.11.2020 Jari Hiltunen
 22.11.2020 Lisätty DHT22 (AM2302) sensorin luku lämpötilalle ja kosteudelle
 24.11.2020 Lisätty näytön kääntö, paikallisajan (dst) laskenta ja himmennys
+29.11.2020 Lisätty sensorille lähetettävä tieto kosteudesta ja lämpötilasta, jotka parantavat tarkkuutta.
 
 """
 
@@ -194,6 +195,10 @@ class KaasuSensori:
                 self.luettu_aika = utime.time()
             await asyncio.sleep_ms(1000)
 
+    async def laheta_lampo_ja_kosteus_korjaus(self, lampoin, kosteusin):
+        if (float(lampoin) > -40) and (float(lampoin) < 150) and (float(kosteusin) > 0) and (float(kosteusin) < 101):
+            self.sensori.put_envdata(float(kosteusin), float(lampoin))
+
 
 class LampojaKosteus:
 
@@ -294,6 +299,7 @@ async def sivu_1():
     await naytin.teksti_riville("KLO:  %s" % ratkaise_aika()[1], 1, 5)
     await naytin.piirra_alleviivaus(1, 20)
     await naytin.teksti_riville("eCO2: %s ppm" % kaasusensori.eCO2, 2, 5)
+    #  Raja-arvot ovat yleisiä CO2:n haitallisuuden arvoja
     if kaasusensori.eCO2 > 1200:
         await naytin.kaanteinen_vari(True)
     else:
@@ -309,7 +315,7 @@ async def sivu_1():
         await naytin.teksti_riville("Rh:   %s %%" % tempjarh.kosteus, 5, 5)
     await naytin.kaanna_180_astetta(True)
     if (ratkaise_aika()[1] > '20:00:00') and (ratkaise_aika()[1] < '08:00:00'):
-        await naytin.kontrasti(5)
+        await naytin.kontrasti(2)
     else:
         await naytin.kontrasti(100)
     await naytin.aktivoi_naytto()
@@ -330,7 +336,7 @@ async def sivu_2():
     await naytin.teksti_riville("Rh  :{:0.1f} %".format(tempjarh.kosteus_keskiarvo), 5, 5)
     await naytin.kaanna_180_astetta(True)
     if (ratkaise_aika()[1] > '20:00:00') and (ratkaise_aika()[1] < '08:00:00'):
-        await naytin.kontrasti(5)
+        await naytin.kontrasti(2)
     else:
         await naytin.kontrasti(100)
     await naytin.aktivoi_naytto()
@@ -338,6 +344,7 @@ async def sivu_2():
 
 
 async def sivu_3():
+    """ Statussivulla näytetään yleisiä tietoja """
     await naytin.teksti_riville("STATUS", 0, 5)
     await naytin.piirra_alleviivaus(0, 6)
     await naytin.teksti_riville("Up s.: %s" % (utime.time() - aloitusaika), 1, 5)
@@ -346,8 +353,9 @@ async def sivu_3():
     await naytin.teksti_riville("Memfree: %s" % gc.mem_free(), 4, 5)
     await naytin.teksti_riville("Hall: %s" % esp32.hall_sensor(), 5, 5)
     await naytin.kaanna_180_astetta(True)
+    #  Himmennetään näyttöä yöksi
     if (ratkaise_aika()[1] > '20:00:00') and (ratkaise_aika()[1] < '08:00:00'):
-        await naytin.kontrasti(5)
+        await naytin.kontrasti(2)
     else:
         await naytin.kontrasti(100)
     await naytin.aktivoi_naytto()
@@ -355,11 +363,12 @@ async def sivu_3():
 
 
 async def mqtt_raportoi():
+    """ Raportoidaan tiedot mqtt-brokerille ja asetetaan samalla ccs811-sensorille uudet lämpö ja kosteus """
     global edellinen_mqtt_klo
     n = 0
     while True:
         await asyncio.sleep(5)
-        print('mqtt-publish', n)
+        # print('mqtt-publish', n)
         await client.publish('result', '{}'.format(n), qos=1)
         n += 1
         if (kaasusensori.eCO2_keskiarvo > 0) and (kaasusensori.tVOC_keskiarvo > 0) and \
@@ -370,6 +379,7 @@ async def mqtt_raportoi():
                 await client.publish(AIHE_TVOC, str(kaasusensori.tVOC_keskiarvo), retain=False, qos=0)
                 await client.publish(DHT22_LAMPO, str(tempjarh.lampo), retain=False, qos=0)
                 await client.publish(DHT22_KOSTEUS, str(tempjarh.kosteus), retain=False, qos=0)
+                await kaasusensori.laheta_lampo_ja_kosteus_korjaus(tempjarh.kosteus, tempjarh.lampo)
                 edellinen_mqtt_klo = utime.time()
             except OSError as e:
                 await naytin.kaanteinen_vari(True)
@@ -380,8 +390,7 @@ async def mqtt_raportoi():
 async def main():
     MQTTClient.DEBUG = False
     await client.connect()
-    # tyojono = asyncio.get_event_loop()
-    #  Luetaan arvoja taustalla
+    #  Aktivoi seuraava rivi jos haluat nähdä taustatoimintoja
     # asyncio.create_task(kerro_tilannetta())
     asyncio.create_task(kaasusensori.lue_arvot())
     asyncio.create_task(tempjarh.lue_arvot())
