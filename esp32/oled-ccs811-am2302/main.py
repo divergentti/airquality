@@ -31,7 +31,8 @@ Asynkroninen MQTT: https://github.com/peterhinch/micropython-mqtt/blob/master/mq
 21.11.2020 Jari Hiltunen
 22.11.2020 Lisätty DHT22 (AM2302) sensorin luku lämpötilalle ja kosteudelle
 24.11.2020 Lisätty näytön kääntö, paikallisajan (dst) laskenta ja himmennys
-29.11.2020 Lisätty sensorille lähetettävä tieto kosteudesta ja lämpötilasta, jotka parantavat tarkkuutta.
+29.11.2020 Lisätty sensorille lähetettävä tieto kosteudesta ja lämpötilasta, jotka parantavat tarkkuutta sekä
+           muutettu kaikki lähetettävät arvot käyttämään keskiarvoja, jolloin anturin satunnaiset heitot häviävät.
 
 """
 
@@ -263,6 +264,7 @@ async def kerro_tilannetta():
 
 
 async def laske_keskiarvot():
+    """ Luetaan 20 arvoa keskiarvon laskemiseksi. Tämä vähentää anturiheittoja. """
     eco2_keskiarvot = []
     tvoc_keskiarvot = []
     lampo_keskiarvot = []
@@ -273,23 +275,23 @@ async def laske_keskiarvot():
             eco2_keskiarvot.append(kaasusensori.eCO2)
             kaasusensori.eCO2_keskiarvo = (sum(eco2_keskiarvot) / len(eco2_keskiarvot))
             kaasusensori.eCO2_arvoja = len(eco2_keskiarvot)
-            if len(eco2_keskiarvot) > 100:
+            if len(eco2_keskiarvot) > 20:
                 eco2_keskiarvot.clear()
         if kaasusensori.tVOC > 0:
             tvoc_keskiarvot.append(kaasusensori.tVOC)
             kaasusensori.tVOC_keskiarvo = (sum(tvoc_keskiarvot) / len(tvoc_keskiarvot))
             kaasusensori.tVOC_arvoja = len(tvoc_keskiarvot)
-            if len(tvoc_keskiarvot) > 100:
+            if len(tvoc_keskiarvot) > 20:
                 tvoc_keskiarvot.clear()
         if tempjarh.lampo is not None:
             lampo_keskiarvot.append(float(tempjarh.lampo))
             tempjarh.lampo_keskiarvo = sum(lampo_keskiarvot) / len(lampo_keskiarvot)
-            if len(lampo_keskiarvot) > 100:
+            if len(lampo_keskiarvot) > 20:
                 lampo_keskiarvot.clear()
         if tempjarh.kosteus is not None:
             kosteus_keskiarvot.append(float(tempjarh.kosteus))
             tempjarh.kosteus_keskiarvo = sum(kosteus_keskiarvot) / len(kosteus_keskiarvot)
-            if len(kosteus_keskiarvot) > 100:
+            if len(kosteus_keskiarvot) > 20:
                 kosteus_keskiarvot.clear()
         await asyncio.sleep(1)
 
@@ -372,14 +374,13 @@ async def mqtt_raportoi():
         await client.publish('result', '{}'.format(n), qos=1)
         n += 1
         if (kaasusensori.eCO2_keskiarvo > 0) and (kaasusensori.tVOC_keskiarvo > 0) and \
-                (tempjarh.lampo is not None) and (tempjarh.kosteus is not None) and \
                 (utime.time() - edellinen_mqtt_klo) > 60:
             try:
                 await client.publish(AIHE_CO2, str(kaasusensori.eCO2_keskiarvo), retain=False, qos=0)
                 await client.publish(AIHE_TVOC, str(kaasusensori.tVOC_keskiarvo), retain=False, qos=0)
-                await client.publish(DHT22_LAMPO, str(tempjarh.lampo), retain=False, qos=0)
-                await client.publish(DHT22_KOSTEUS, str(tempjarh.kosteus), retain=False, qos=0)
-                await kaasusensori.laheta_lampo_ja_kosteus_korjaus(tempjarh.kosteus, tempjarh.lampo)
+                await client.publish(DHT22_LAMPO, str(tempjarh.lampo_keskiarvo), retain=False, qos=0)
+                await client.publish(DHT22_KOSTEUS, str(tempjarh.kosteus_keskiarvo), retain=False, qos=0)
+                await kaasusensori.laheta_lampo_ja_kosteus_korjaus(tempjarh.kosteus_keskiarvo, tempjarh.lampo_keskiarvo)
                 edellinen_mqtt_klo = utime.time()
             except OSError as e:
                 await naytin.kaanteinen_vari(True)
