@@ -271,27 +271,37 @@ async def laske_keskiarvot():
     kosteus_keskiarvot = []
 
     while True:
-        if kaasusensori.eCO2 > 0:
+        if kaasusensori.eCO2 is not None:
             eco2_keskiarvot.append(kaasusensori.eCO2)
             kaasusensori.eCO2_keskiarvo = (sum(eco2_keskiarvot) / len(eco2_keskiarvot))
             kaasusensori.eCO2_arvoja = len(eco2_keskiarvot)
-            if len(eco2_keskiarvot) > 20:
+            #  Luetaan 20 arvoa ja poistetaan vanhin
+            if len(eco2_keskiarvot) == 20:
+                eco2_keskiarvot.pop(0)
+            #  Tänne ei pitäisi tulla koskaan
+            elif len(eco2_keskiarvot) > 20:
                 eco2_keskiarvot.clear()
-        if kaasusensori.tVOC > 0:
+        if kaasusensori.tVOC is not None:
             tvoc_keskiarvot.append(kaasusensori.tVOC)
             kaasusensori.tVOC_keskiarvo = (sum(tvoc_keskiarvot) / len(tvoc_keskiarvot))
             kaasusensori.tVOC_arvoja = len(tvoc_keskiarvot)
-            if len(tvoc_keskiarvot) > 20:
+            if len(tvoc_keskiarvot) == 20:
+                tvoc_keskiarvot.pop(0)
+            elif len(tvoc_keskiarvot) > 20:
                 tvoc_keskiarvot.clear()
         if tempjarh.lampo is not None:
             lampo_keskiarvot.append(float(tempjarh.lampo))
             tempjarh.lampo_keskiarvo = sum(lampo_keskiarvot) / len(lampo_keskiarvot)
-            if len(lampo_keskiarvot) > 20:
+            if len(lampo_keskiarvot) == 20:
+                lampo_keskiarvot.pop(0)
+            elif len(lampo_keskiarvot) > 20:
                 lampo_keskiarvot.clear()
         if tempjarh.kosteus is not None:
             kosteus_keskiarvot.append(float(tempjarh.kosteus))
             tempjarh.kosteus_keskiarvo = sum(kosteus_keskiarvot) / len(kosteus_keskiarvot)
-            if len(kosteus_keskiarvot) > 20:
+            if len(kosteus_keskiarvot) == 20:
+                kosteus_keskiarvot.pop(0)
+            elif len(kosteus_keskiarvot) > 20:
                 kosteus_keskiarvot.clear()
         await asyncio.sleep(1)
 
