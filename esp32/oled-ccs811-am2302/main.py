@@ -33,7 +33,7 @@ Asynkroninen MQTT: https://github.com/peterhinch/micropython-mqtt/blob/master/mq
 24.11.2020 Lisätty näytön kääntö, paikallisajan (dst) laskenta ja himmennys
 29.11.2020 Lisätty sensorille lähetettävä tieto kosteudesta ja lämpötilasta, jotka parantavat tarkkuutta sekä
            muutettu kaikki lähetettävät arvot käyttämään keskiarvoja, jolloin anturin satunnaiset heitot häviävät.
-
+2.12.2020  Tiputettu prosessorin nopeus 80 MHz lämmöntuoton vähentämiseksi
 """
 
 from machine import I2C, SPI, Pin
@@ -407,6 +407,8 @@ async def main():
     asyncio.create_task(tempjarh.lue_arvot())
     asyncio.create_task(laske_keskiarvot())
     asyncio.create_task(mqtt_raportoi())
+    #  ESP32 oletusnopeus on 160 MHZ, lasketaan CPU lämmöntuoton vuoksi
+    machine.freq(80000000)
 
     while True:
         await sivu_1()
