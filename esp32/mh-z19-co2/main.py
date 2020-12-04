@@ -1,6 +1,6 @@
 """
 
-MH-Z19 sensorin datasheetti https://www.winsen-sensor.com/d/files/MH-Z19B.pdf
+Esimerkki
 
 """
 
