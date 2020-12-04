@@ -48,7 +48,15 @@ Kytkentä:
     - ESP32 UART0 on varattu USB serialille, eli käytä UART1 tai 2, esim. pinnit 16(rx) ja 17(tx).
     - sensorin tx (transmit) menee ESP:n rx (receive)
 
-Lainattu peruslukua https://github.com/dr-mod/co2-monitoring-station/blob/master/mhz19b.py """
+Lainattu peruslukua https://github.com/dr-mod/co2-monitoring-station/blob/master/mhz19b.py
+
+3.12.2020 Jari Hiltunen
+4.12.2020 UART:ssa read ja write metodit pysäyttävät toiminnan luvun tai kirjoituksen ajaksi. Muutettu
+   käyttämään stremia 6.3 mukaisesti:
+   https://github.com/peterhinch/micropython-async/blob/master/v3/docs/TUTORIAL.md#63-using-the-stream-mechanism
+   Luokassa MHZ19bCO2 on mm. muutettu self.sensori.write(self.LUKU_KOMENTO) -> await self.kirjoittaja(self.LUKU_KOMENTO)
+
+"""
 
 
 import machine
@@ -80,6 +88,17 @@ class MHZ19bCO2:
         self.MITTAUSVALI_0_5000PPM = bytearray(b'\xFF\x01\x99\x00\x00\x00\x13\x88\xCB')
         self.MITTAUSVALI_0_10000PPM = bytearray(b'\xFF\x01\x99\x00\x00\x00\x27\x10\x2F')
 
+    async def kirjoittaja(self, data):
+        portti = asyncio.StreamWriter(self.sensori, {})
+        portti.write(data)
+        await portti.drain()    # Lähetys alkaa
+        await asyncio.sleep(2)
+
+    async def lukija(self, merkkia):
+        portti = asyncio.StreamReader(self.sensori)
+        data = await portti.readexactly(merkkia)
+        return data
+
     async def lue_co2_looppi(self):
         while True:
             if (utime.time() - self.sensori_aktivoitu_klo) < self.esilammitysaika:
@@ -90,8 +109,9 @@ class MHZ19bCO2:
                 #  Luetaan arvoja korkeintaan 2 min välein
                 print("Luetaan arvo, hetki...")
                 try:
-                    self.sensori.write(self.LUKU_KOMENTO)
-                    lukukehys = bytearray(self.sensori.read(9))
+                    # self.sensori.write(self.LUKU_KOMENTO)
+                    await self.kirjoittaja(self.LUKU_KOMENTO)
+                    lukukehys = bytearray(await self.lukija(9))
                     if lukukehys[0] == 0xff and self._laske_crc(lukukehys) == lukukehys[8]:
                         self.co2_arvo = self._data_to_co2_level(lukukehys)
                         # print(self.co2_arvo)
@@ -111,33 +131,33 @@ class MHZ19bCO2:
 
     def kalibroi_nollapiste(self):
         if utime.time() - self.sensori_aktivoitu_klo > (20 * 60):
-            self.sensori.write(self.KALIBROI_NOLLAPISTE)
+            self.kirjoittaja(self.KALIBROI_NOLLAPISTE)
             self.nollapiste_kalibroitu = True
         else:
             print("Ennen kalibrointia sensorin tulee olla lämmennyt 20 minuuttia!")
 
     def kalibroi_span(self):
         if self.nollapiste_kalibroitu is True:
-            self.sensori.write(self.KALIBROI_SPAN)
+            self.kirjoittaja(self.KALIBROI_SPAN)
         else:
             print("Nollapistee tulee olla ensin kablinroituna!")
 
     def itsekalibrointi_on(self):
-        self.sensori.write(self.ITSEKALIBROINTI_ON)
+        self.kirjoittaja(self.ITSEKALIBROINTI_ON)
 
     def itsekalibrointi_off(self):
-        self.sensori.write(self.ITSEKALIBTOINTI_OFF)
+        self.kirjoittaja(self.ITSEKALIBTOINTI_OFF)
 
     def mittausvali_0_2000_ppm(self):
-        self.sensori.write(self.MITTAUSVALI_0_2000PPM)
+        self.kirjoittaja(self.MITTAUSVALI_0_2000PPM)
         self.mittausvali = '0_2000'
 
     def mittausvali_0_5000_ppm(self):
-        self.sensori.write(self.MITTAUSVALI_0_5000PPM)
+        self.kirjoittaja(self.MITTAUSVALI_0_5000PPM)
         self.mittausvali = '0_5000'
 
     def mittausvali_0_10000_ppm(self):
-        self.sensori.write(self.MITTAUSVALI_0_10000PPM)
+        self.kirjoittaja(self.MITTAUSVALI_0_10000PPM)
         self.mittausvali = '0_10000'
 
     @staticmethod
