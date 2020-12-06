@@ -3,11 +3,11 @@ This repository holds mainly python scripts related to measuring air quality par
 
 Measuring temperature and moisture may help to adjust HVAC systems so that in other hand energy loss is as low as possible, but also so that microbial growth, like algae and bacteria, do not cause problems.  Saving energy shall be priority from #climatechange point of view.
 
-High concentration of CO2 may cause health issues, but also reduce productivity. Schools do not have plenty of money to spend and therefore valuable sensors may be needed. The same applies for households and other locations. 
+High concentration of CO2 may cause health issues, but also reduce productivity. Schools do not have plenty of money to spend and therefore inexpensive sensors may be needed. The same applies for households and other locations. 
 
 Measuring dust particles is also important and helps maintaining HVAC systems. Typically filters may be bad quality or they are not cleaned, causing bad and perhaps even dangerous indoor air.
 
-Target is to use valuable sensors, which accuracy can be improved either in the python scripts, or in further analysis, with reference values from accredited sources. 
+Target is to use inexpensive sensors, which accuracy can be improved either in the python scripts, or in further analysis, with reference values from accredited sources. 
 
 Once system is ready and the data flows to the database, information can be analyzed further and perhaps calculate more intelligent alarms to protect people.
 
