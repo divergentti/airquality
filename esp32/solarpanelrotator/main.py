@@ -1,22 +1,24 @@
 """
-For ESP32-Wrover or ESP32-Wroom. Controls solar panel towards the sun
+For ESP32-Wrover or ESP32-Wroom. Controls solar panel towards the sun peak position.
 
 Battery voltage measurement: voltage splitter 2 x 100 kOhm resistors so that another end is at + , another -
- and from the middle to the IO-port. ESP32 ADC in 12 bit 4096 steps, when 3.3 volts / 4096 = 0,0008056V per step, but
+ and from the middle to the IO-port (BATTERY_ADC_PIN).
+
+ ESP32 ADC in 12 bit 4096 steps, when 3.3 volts / 4096 = 0,0008056V per step, but
  because we use voltage splitter, value needs to be multiplied with 2, when each change in reading means
  0,0016113 volts per step. Checking with multimeter: measure volts from voltage splitter, shall be always below 3.3V,
  which is port maximum. As an example, 3,28 volts at the battery shows 1,65V at the voltage splitter. However, this
  is not enough, because ESP32 reads ADC values between 0 - 1 volts. That is why we need 11DB attennuation in the
- port initialization. Before selecting proper multiplier, we can check what kind of values we see:
+ port initialization. Checking values read:
 
     voltagelist = []
     while len(voltagelist) < 5000:
     lista.append(batteryvoltage.read())
 
-    --> 5000 value list brings min = 1657 and max(voltalist) = 1958. Average is 1796.592.
+    --> 5000 value list brings min = 1657 and max(voltagelist) = 1958. Average is 1796.592.
 
- We know from multimeter reading that battery voltage is 3.28V. We device voltage / 1796.592, when we end up to
- 0.00182567 volts per ADC bit. But is ADC with attennuation linear? No, it is not!
+ We know from multimeter reading that battery real voltage is 3.28V. Devide voltage / 1796.592, when we end up to
+ multiplier 0.00182567 volts per ADC bit. But is ADC with attennuation linear? No, it is not!
 
  Linearity we can check with other voltage, say 4.66 volts, which brings 2.3 volts to the voltage splitter, and from
  ADC read minimum we see value 2500, maximum 2735, average 2614.584, so 4.66 volts / 2614.584 = 0.0017823 V/b
@@ -24,11 +26,15 @@ Battery voltage measurement: voltage splitter 2 x 100 kOhm resistors so that ano
  Best educated guess for the proper multiplies is 0.0018V per bit with 11DB attennuation.
 
 Stepper motor control: stepper motor is rotated back and fort x steps and during each step voltage from the
- solar panel is measured. Once this phase is complete, we know how much we need to turn solar panel to get
- always highest input. Time is used as reference.
+ solar panel is measured. A list of steps and voltages is created and maximum is selected. If maximum resides
+ in clockwise steps, within 1 - x steps, we select highest voltage step, otherwise step must be in counterclockwise
+ steps, steps + step. Once this phase is complete, we know how much we need to turn solar panel to get
+ always highest input. Last we check time, calculate how much we must turn stepper motor each minute to keep on
+ track with the sun. Rough estimate is to use localtime 12:00 for south position. Calibration is completed once a day.
 
 
 7.12.2020 Jari Hiltunen
+8.12.2020 Initial version ready before class splitting. Stepper shall follow the sun.
 
 """
 
@@ -91,10 +97,11 @@ class StepperMotor:
                                          Pin(in4, Pin.OUT), delay=indelay)
         self.battery_voltage = None
         self.steps_voltages = []
-        self.steps_to_rotate = 10  # Default
+        self.steps_to_rotate = 10  # Default for testing
         self.max_voltage = None
         self.step_max_index = None
         self.panel_time = None
+        self.uptime = 0
         self.direction = None
         self.degrees_minute = 360 / (24 * 60)
         self.full_rotation = int(4075.7728395061727 / 8)  # http://www.jangeox.be/2013/10/stepper-motor-28byj-48_25.html
@@ -161,13 +168,18 @@ class StepperMotor:
         c = 0
         while True:
             if self.panel_time is not None:
+                self.uptime = utime.mktime(utime.localtime()) - \
+                              utime.mktime(self.panel_time)
+            #  If second is 00, do turn
+            if int(utime.localtime()[5]) == 0:
                 await self.turn_x_steps_right(self.steps_for_minute)
                 self.direction = self.direction + self.degrees_minute
-                await asyncio.sleep(60)
+                await asyncio.sleep(1)
                 c += 1
                 if c == 6:
                     await self.turn_x_steps_right(1)
                     c = 0
+            await asyncio.sleep_ms(500)
 
 
 async def resolve_date():
@@ -209,18 +221,16 @@ async def main():
     #  Find best step and direction for the solar panel. Do once when boot, then once a day
     if panel_motor.panel_time is None:
         await panel_motor.search_best_voltage_position()
-        print("Best position: %s/%s degrees, voltage %s, step %s " % (panel_motor.panel_time, panel_motor.direction,
-                                                                      panel_motor.max_voltage,
-                                                                      panel_motor.step_max_index))
-    elif (utime.localtime() - panel_motor.panel_time) > 1440:
+        print("Best position: %s/%s degrees, voltage %s, step %s.  "
+              % (panel_motor.panel_time, panel_motor.direction, panel_motor.max_voltage, panel_motor.step_max_index))
+    elif (utime.mktime(utime.localtime()) - panel_motor.uptime) > 1440:
         await panel_motor.search_best_voltage_position()
-        print("Best position: %s/%s degrees, voltage %s, step %s " % (panel_motor.panel_time, panel_motor.direction,
-                                                                      panel_motor.max_voltage,
-                                                                      panel_motor.step_max_index))
+        print("Best position: %s/%s degrees, voltage %s, step %s.  "
+              % (panel_motor.panel_time, panel_motor.direction, panel_motor.max_voltage, panel_motor.step_max_index))
     asyncio.create_task(panel_motor.follow_the_sun_loop())
 
     while True:
-        print("Panel direction: ", panel_motor.direction)
+        print("Panel direction: %s, uptime %s" % (panel_motor.direction, panel_motor.uptime))
         await asyncio.sleep(5)
 
 asyncio.run(main())
