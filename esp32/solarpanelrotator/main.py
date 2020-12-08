@@ -29,7 +29,7 @@ Stepper motor control: stepper motor is rotated back and fort x steps and during
 
 
 7.12.2020 Jari Hiltunen
-8.12.2020 Changed to Class-method, ultimatelly StepperMotor class will be separated from main.py
+
 """
 
 import Steppermotor
@@ -92,8 +92,13 @@ class StepperMotor:
         self.battery_voltage = None
         self.steps_voltages = []
         self.steps_to_rotate = 10  # Default
+        self.max_voltage = None
         self.step_max_index = None
         self.panel_time = None
+        self.direction = None
+        self.degrees_minute = 360 / (24 * 60)
+        self.full_rotation = int(4075.7728395061727 / 8)  # http://www.jangeox.be/2013/10/stepper-motor-28byj-48_25.html
+        self.steps_for_minute = int((24 * 60) / self.full_rotation)  # 0.17 steps rounded
 
     async def turn_x_degrees_right(self, degrees):
         self.motor.angle(degrees)
@@ -111,10 +116,12 @@ class StepperMotor:
         self.motor.reset()
 
     async def search_best_voltage_position(self, stepstorotate=10):
-        """ Limiter switches not yet supported. First value is step, second voltage """
+        """ Limiter switches not yet supported. Stepstorotate to both directions from startup! """
+        print("Finding highest voltage direction for the solar panel. Wait.")
         self.steps_to_rotate = stepstorotate
         await self.zero_to_potision()    # typo is in the class
         #  Look steps clockwise
+        print("Turning panel clockwise %s steps" % self.steps_to_rotate)
         for i in range(0, self.steps_to_rotate):
             await self.turn_x_steps_right(1)
             await asyncio.sleep(1)
@@ -124,6 +131,7 @@ class StepperMotor:
         await self.turn_x_steps_left(self.steps_to_rotate)
         await asyncio.sleep(1)
         #  Look steps counterclockwise
+        print("Turning panel counterclockwise %s steps" % self.steps_to_rotate)
         for i in range(0, self.steps_to_rotate):
             await self.turn_x_steps_left(1)
             await asyncio.sleep(1)
@@ -134,17 +142,32 @@ class StepperMotor:
         if len(self.steps_voltages) < (2 * self.steps_to_rotate):
             print("Some values missing! Should be %s, is %s" % (2 * self.steps_to_rotate, len(self.steps_voltages)))
             return None
-        #  Now we have voltages to both directions, check which one has highest voltage
-        print(self.steps_voltages)
+        #  Now we have voltages to both directions, check which one has highest voltage. First occurence.
+        self.max_voltage = max(self.steps_voltages)
         self.step_max_index = self.steps_voltages.index(max(self.steps_voltages))
+        #  Panel at highest solar power direction, if time is correct, calculate direction
+        self.panel_time = utime.localtime()
+        #  The sun shall be about south at LOCAL 12:00 winter time (summer +1h)
+        self.direction = (int(self.panel_time[3] * 60) + int(self.panel_time[4])) * self.degrees_minute
         if self.step_max_index <= self.steps_to_rotate:
             """ Maximum voltage value found from first right turn, maximum counterwise """
             await self.turn_x_steps_right(self.step_max_index)
         elif self.step_max_index > self.steps_to_rotate:
             """ Maximum voltage value found from second turn, maximum counterclocwise """
             await self.turn_x_steps_left(self.step_max_index - self.steps_to_rotate)
-        #  Panel at highest solar power direction, if time is correct, calculate direction
-        self.panel_time = utime.localtime()
+
+    async def follow_the_sun_loop(self):
+        #  Execute once a minute. Drift 0.17 steps / minute, add step each 6 minutes !
+        c = 0
+        while True:
+            if self.panel_time is not None:
+                await self.turn_x_steps_right(self.steps_for_minute)
+                self.direction = self.direction + self.degrees_minute
+                await asyncio.sleep(60)
+                c += 1
+                if c == 6:
+                    await self.turn_x_steps_right(1)
+                    c = 0
 
 
 async def resolve_date():
@@ -186,13 +209,18 @@ async def main():
     #  Find best step and direction for the solar panel. Do once when boot, then once a day
     if panel_motor.panel_time is None:
         await panel_motor.search_best_voltage_position()
+        print("Best position: %s/%s degrees, voltage %s, step %s " % (panel_motor.panel_time, panel_motor.direction,
+                                                                      panel_motor.max_voltage,
+                                                                      panel_motor.step_max_index))
     elif (utime.localtime() - panel_motor.panel_time) > 1440:
         await panel_motor.search_best_voltage_position()
-    # asyncio.create_task(xxx)
+        print("Best position: %s/%s degrees, voltage %s, step %s " % (panel_motor.panel_time, panel_motor.direction,
+                                                                      panel_motor.max_voltage,
+                                                                      panel_motor.step_max_index))
+    asyncio.create_task(panel_motor.follow_the_sun_loop())
 
     while True:
-        print("Kukkuluuruu")
-
+        print("Panel direction: ", panel_motor.direction)
         await asyncio.sleep(5)
 
 asyncio.run(main())
