@@ -172,11 +172,13 @@ class StepperMotor:
                               utime.mktime(self.panel_time)
             #  If second is 00, do turn
             if int(utime.localtime()[5]) == 0:
+                print("Rotate %s steps right." % self.steps_for_minute)
                 await self.turn_x_steps_right(self.steps_for_minute)
                 self.direction = self.direction + self.degrees_minute
                 await asyncio.sleep(1)
                 c += 1
                 if c == 6:
+                    print("Rotate 1 step right for correction.")
                     await self.turn_x_steps_right(1)
                     c = 0
             await asyncio.sleep_ms(500)
@@ -223,7 +225,7 @@ async def main():
         await panel_motor.search_best_voltage_position()
         print("Best position: %s/%s degrees, voltage %s, step %s.  "
               % (panel_motor.panel_time, panel_motor.direction, panel_motor.max_voltage, panel_motor.step_max_index))
-    elif (utime.mktime(utime.localtime()) - panel_motor.uptime) > 1440:
+    elif (utime.mktime(utime.localtime()) - panel_motor.uptime) > 86400:
         await panel_motor.search_best_voltage_position()
         print("Best position: %s/%s degrees, voltage %s, step %s.  "
               % (panel_motor.panel_time, panel_motor.direction, panel_motor.max_voltage, panel_motor.step_max_index))
