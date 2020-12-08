@@ -29,7 +29,7 @@ Stepper motor control: stepper motor is rotated back and fort x steps and during
 
 
 7.12.2020 Jari Hiltunen
-
+8.12.2020 Changed to Class-method, ultimatelly StepperMotor class will be separated from main.py
 """
 
 import Steppermotor
