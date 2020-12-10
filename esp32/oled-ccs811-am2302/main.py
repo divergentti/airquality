@@ -34,6 +34,11 @@ Asynkroninen MQTT: https://github.com/peterhinch/micropython-mqtt/blob/master/mq
 29.11.2020 Lisätty sensorille lähetettävä tieto kosteudesta ja lämpötilasta, jotka parantavat tarkkuutta sekä
            muutettu kaikki lähetettävät arvot käyttämään keskiarvoja, jolloin anturin satunnaiset heitot häviävät.
 2.12.2020  Tiputettu prosessorin nopeus 80 MHz lämmöntuoton vähentämiseksi
+10.12.2020 DHT22 (dht_readinto) on bugi joka aiheuttaa sen, että jos lämpötila on -0.x palautuu arvoksi 3767.x
+           ja tämä johtuu siitä että palautettava, kuten bytearray(b'\x03r\xff\xfdq'), on miinusavoilla sekaisin.
+           Korjattu ongelma vähentämällä kokonaisluku ja lisäämällä desimaali sellaisenaan.
+           Samalla vähennetty 0-asteessa tuleva heitto 3.01 astetta, joka johtuu siitä, että sekä prosessori että
+           näyttö lämmittää anturia. Tämä toteutus ei siis sovi ulos laisinkaan.
 """
 
 from machine import I2C, SPI, Pin
@@ -224,8 +229,22 @@ class LampojaKosteus:
                 anturilukuvirheita += 1
                 if anturilukuvirheita > 50:
                     restart_and_reconnect()
-            if (self.anturi.temperature() > -40) and (self.anturi.temperature() < 150):
-                self.lampo = '{:.1f}'.format(self.anturi.temperature() * DHT22_LAMPO_KORJAUSKERROIN)
+            #  Prosessorin ja näytön aiheuttama mittariheitto ja tarkistus ettei ole älyttömiä arvoja
+            self.lampo = float(self.anturi.temperature()) - 3.01  # heitto noin 0 asteessa
+            #   - asteiden korjaus, tyypillisesti -3276.x C
+            if self.lampo < -45:
+                ttemp = str(self.lampo).split('.')
+                msb = int(ttemp[0]) * -1
+                lsb = ttemp[1]
+                belowzero = str(3276 - msb) + "." + lsb
+                if float(belowzero) > 0.0:
+                    self.lampo = float(belowzero) * -1
+                else:
+                    self.lampo = float(belowzero)
+            if self.lampo > 100:
+                self.lampo = None
+            #  Muotoilu ja tarvittaessa korjauskerroin
+            self.lampo = '{:.1f}'.format(self.lampo * DHT22_LAMPO_KORJAUSKERROIN)
             if (self.anturi.humidity() > 0) and (self.anturi.humidity() < 101):
                 self.kosteus = '{:.1f}'.format(self.anturi.humidity() * DHT22_KOSTEUS_KORJAUSKERROIN)
             await asyncio.sleep(self.lukuvali)
@@ -260,7 +279,7 @@ async def kerro_tilannetta():
             print('Lampo: %s C' % tempjarh.lampo)
         if tempjarh.kosteus is not None:
             print('Kosteus: %s %%' % tempjarh.kosteus)
-        await asyncio.sleep(1)
+        await asyncio.sleep(2)
 
 
 async def laske_keskiarvot():
@@ -402,7 +421,7 @@ async def main():
     MQTTClient.DEBUG = False
     await client.connect()
     #  Aktivoi seuraava rivi jos haluat nähdä taustatoimintoja
-    # asyncio.create_task(kerro_tilannetta())
+    asyncio.create_task(kerro_tilannetta())
     asyncio.create_task(kaasusensori.lue_arvot())
     asyncio.create_task(tempjarh.lue_arvot())
     asyncio.create_task(laske_keskiarvot())
