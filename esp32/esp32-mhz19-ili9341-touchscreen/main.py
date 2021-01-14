@@ -99,12 +99,13 @@ class ConnectWiFi:
         self.webrepl_started = False
         self.searh_list = []
         self.ssid_list = []
+        self.mqttclient = None
         if network.WLAN(network.STA_IF).config('essid') != '':
-            display.row_by_row_text("Connected to network %s" % network.WLAN(network.STA_IF).config('essid'), 'white')
+            display.row_by_row_text("Connected to network %s" % network.WLAN(network.STA_IF).config('essid'), 'fuschia')
             self.use_ssid = network.WLAN(network.STA_IF).config('essid')
-            display.row_by_row_text(('IP-address: %s' % network.WLAN(network.STA_IF).ifconfig()[0]), 'white')
+            display.row_by_row_text(('IP-address: %s' % network.WLAN(network.STA_IF).ifconfig()[0]), 'fuschia')
             self.ip_address = network.WLAN(network.STA_IF).ifconfig()[0]
-            display.row_by_row_text("WiFi-signal strength %s" % (network.WLAN(network.STA_IF).status('rssi')), 'white')
+            display.row_by_row_text("WiFi-signal strength %s" % (network.WLAN(network.STA_IF).status('rssi')), 'fuschia')
             self.wifi_strenth = network.WLAN(network.STA_IF).status('rssi')
             self.network_connected = True
             self.use_ssid = network.WLAN(network.STA_IF).config('essid')
@@ -125,7 +126,7 @@ class ConnectWiFi:
             self.use_password = None    # Password may be from parameters.py or from user input
             self.use_ssid = None   # SSID to be used will be decided later even it is in the parameters.py
             self.network_connected = False
-            self.search_and_connect_wifi_networks()
+            self.search_wifi_networks()
 
     def start_webrepl(self):
         if self.webrepl_started is False:
@@ -157,7 +158,7 @@ class ConnectWiFi:
             print("Time: %s " % str(utime.localtime(utime.time())))
             display.row_by_row_text("Time: %s " % str(utime.localtime(utime.time())), 'white')
 
-    def search_and_connect_wifi_networks(self):
+    def search_wifi_networks(self):
         # Begin with adapter reset
         network.WLAN(network.STA_IF).active(False)
         utime.sleep(1)
@@ -203,34 +204,33 @@ class ConnectWiFi:
                 if self.searh_list[0][-3] > self.searh_list[1][-3]:
                     self.use_ssid = self.searh_list[0][0].decode()
                     self.use_password = PASSWORD1
-                    self.connect_to_network()
+                    display.row_by_row_text("Using hotspot: %s" % self.use_ssid, 'yellow')
                 else:
                     self.use_ssid = self.searh_list[1][0].decode()
                     self.use_password = PASSWORD2
-                    self.connect_to_network()
+                    display.row_by_row_text("Using hotspot: %s" % self.use_ssid, 'yellow')
             else:
                 # only 1 in the list
                 self.use_ssid = self.searh_list[0][0].decode()
                 self.use_password = PASSWORD1
-                self.connect_to_network()
+                display.row_by_row_text("Using hotspot: %s" % self.use_ssid, 'yellow')
 
         if self.predefined is False:
             #  Networks not defined in the parameters.py, let's try password to any WiFi order by signal strength
             #  Tries empty password too
+            #  ToDo: rebuild, ask user input which hotspot we want to connect!
             self.ssid_list.sort(key=lambda x: [x][-3])
             if len(self.ssid_list) == 1:
                 self.use_ssid = self.ssid_list[0][0].decode()
-                self.connect_to_network()
             elif len(self.ssid_list) > 1:
                 z = 0
                 while (network.WLAN(network.STA_IF).ifconfig()[0] == '0.0.0.0') and (z <= len(self.ssid_list)) and \
                         (self.network_connected is False):
                     self.use_ssid = self.ssid_list[z][0].decode()
-                    self.connect_to_network()
                     z = +1
 
     def connect_to_network(self):
-        #  We know which network we should connect to
+        #  We know which network we should connect to, but shall we connect?
         print("Connecting to AP %s ..." % self.use_ssid)
         display.row_by_row_text("Connecting to AP %s ..." % self.use_ssid, 'white')
         try:
@@ -265,20 +265,16 @@ class ConnectWiFi:
 
     async def update_status_loop(self):
         while True:
-            self.use_ssid = network.WLAN(network.STA_IF).config('essid')
-            self.ip_address = network.WLAN(network.STA_IF).ifconfig()[0]
-            self.wifi_strenth = network.WLAN(network.STA_IF).status('rssi')
-            await asyncio.sleep(1)
+            if self.network_connected is True:
+                self.use_ssid = network.WLAN(network.STA_IF).config('essid')
+                self.ip_address = network.WLAN(network.STA_IF).ifconfig()[0]
+                self.wifi_strenth = network.WLAN(network.STA_IF).status('rssi')
+                await asyncio.sleep(1)
 
-
-class Mqtt:
-    """ This class creates asynhronous mqtt-object """
-
-    def __init__(self):
-        # Asynchronous mqtt for updating outdoor mqtt status and sending errors to database
+    def mqtt_init(self):
         config['server'] = MQTT_SERVER
-        config['ssid'] = wifinet.use_ssid
-        config['wifi_pw'] = wifinet.use_password
+        config['ssid'] = self.use_ssid
+        config['wifi_pw'] = self.use_password
         config['user'] = MQTT_USER
         config['password'] = MQTT_PASSWORD
         config['port'] = MQTT_PORT
@@ -286,7 +282,7 @@ class Mqtt:
         config['subs_cb'] = self.update_mqtt_status
         config['connect_coro'] = self.mqtt_subscribe
         # Communication object
-        self.client = MQTTClient(config)
+        self.mqttclient = MQTTClient(config)
 
     async def mqtt_up_loop(self):
         #  This loop just keeps the mqtt connection up
@@ -295,12 +291,12 @@ class Mqtt:
         while True:
             await asyncio.sleep(5)
             print('mqtt-publish', n)
-            await self.client.publish('result', '{}'.format(n), qos=1)
+            await self.mqttclient.publish('result', '{}'.format(n), qos=1)
             n += 1
 
     async def mqtt_subscribe(self):
         await asyncio.sleep(1)
-        # await client.subscribe(TOPIC_OUTDOOR, 0)
+        # await self.mqttclient.subscribe(TOPIC_OUTDOOR, 0)
 
     def update_mqtt_status(self, topic, msg, retained):
         # print("Topic: %s, message %s" % (topic, msg))
@@ -332,7 +328,6 @@ class TFTDisplay(object):
         self.display = Display(spi=dispspi, cs=Pin(TFT_CS_PIN), dc=Pin(TFT_DC_PIN), rst=Pin(TFT_RST_PIN),
                                width=320, height=240, rotation=90)
 
-        self.wifinet = None
         # Default fonts
         self.unispace = XglcdFont('fonts/Unispace12x24.c', 12, 24)
         self.fixedfont = XglcdFont('fonts/FixedFont5x8.c', 5, 8, 32, 96)
@@ -355,8 +350,8 @@ class TFTDisplay(object):
         self.diag_count = 0
         self.screen_timeout = False
         self.keyboard = None
-
-        # Test
+        # test
+        self.connect_to_wifi = True
 
         # loop = asyncio.get_event_loop()
         # loop.create_task(self.run_display())
@@ -372,8 +367,9 @@ class TFTDisplay(object):
             self.keyboard.waiting = True
             self.keyboard.locked = False
             if answer == 'y':
-                self.wifinet = ConnectWiFi()
+                self.connect_to_wifi = True
             else:
+                self.connect_to_wifi = False
                 self.display.cleanup()
 
     def row_by_row_text(self, message, color):
@@ -428,10 +424,11 @@ class TFTDisplay(object):
 
     async def show_measurement_screen(self):
         self.display.clear()
-        self.display.draw_text(0, 90, "CO2: %s" % co2sensor.co2_value, self.unispace, color565(255, 128, 255))
-        self.display.draw_text(0, 120, "CO2 average: %s" % co2sensor.co2_average,
-                               self.unispace, color565(255, 128, 255))
-        # display.draw_text(0, 150, 'Ticks CPU %s' % utime.ticks_cpu(), fixed_font, color565(255, 255, 255))
+        self.rownumber = 1
+        self.row_by_row_text("CO2: %s" % co2sensor.co2_value, 'green')
+        self.row_by_row_text("CO2 average: %s" % co2sensor.co2_average, 'green')
+        self.row_by_row_text('Ticks CPU %s' % utime.ticks_cpu(), 'red')
+        await asyncio.sleep(1)
 
     async def show_trends_screen(self):
         pass
@@ -463,16 +460,8 @@ display = TFTDisplay(touchscreenspi, displayspi)
 
 async def main():
     global wifinet
-
-    # Start WiFi if already defined in the parameters.py
-    if (SSID1 is not None) or (SSID2 is not None):
-        wifinet = ConnectWiFi()
-    else:
-        # todo: make user input
-        pass
-
-    if wifinet.network_connected is True:
-        asyncio.create_task(wifinet.update_status_loop())
+    #  Search available hotspots are be ready for connection
+    wifinet = ConnectWiFi()
 
     """ try:
         await client.connect()
@@ -482,9 +471,15 @@ async def main():
     # asyncio.create_task(mqtt_up_loop()) """
 
     asyncio.create_task(co2sensor.read_co2_loop())
+    asyncio.create_task(wifinet.update_status_loop())
     asyncio.create_task(show_what_i_do())
 
     while True:
-        await asyncio.sleep(10)
+        if (display.connect_to_wifi is True) and (wifinet.network_connected is False):
+            wifinet.connect_to_network()
+            await asyncio.sleep(10)
+        if wifinet.network_connected is True:
+            await display.show_measurement_screen()
+        await asyncio.sleep(1)
 
 asyncio.run(main())
