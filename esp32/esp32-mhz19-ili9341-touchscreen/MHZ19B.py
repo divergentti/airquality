@@ -37,10 +37,10 @@ class MHZ19bCO2:
         self.sensor = machine.UART(uart)
         self.sensor.init(baudrate=9600, bits=8, parity=None, stop=1, rx=rxpin, tx=txpin)
         self.zeropoint_calibrated = False
-        self.co2_value = 0
+        self.co2_value = None
         self.co2_averages = []
         self.co2_average_values = 20
-        self.co2_average = 0
+        self.co2_average = None
         self.sensor_activation_time = utime.time()
         self.value_read_time = utime.time()
         self.measuring_range = '0_5000'  # default
@@ -88,9 +88,10 @@ class MHZ19bCO2:
             await asyncio.sleep(self.read_interval)
 
     def calculate_average(self, co2):
-        self.co2_averages.append(co2)
-        self.co2_average = (sum(self.co2_averages) / len(self.co2_averages))
-        #  read 20 values, delete oldest
+        if co2 is not None:
+            self.co2_averages.append(co2)
+            self.co2_average = (sum(self.co2_averages) / len(self.co2_averages))
+            #  read 20 values, delete oldest
         if len(self.co2_averages) == self.co2_average_values:
             self.co2_averages.pop(0)
 
