@@ -51,7 +51,7 @@ except OSError:  # open failed
     raise
 
 #  Globals
-wifinet = None
+# wifinet = None
 
 
 def restart_and_reconnect():
@@ -87,11 +87,11 @@ async def show_what_i_do():
         await asyncio.sleep(1)
 
 
-class ConnectWiFi:
+class ConnectWiFi(object):
     """ This class creates network object for WiFi-connection. SSID may be defined in the parameters.py or
     user may input a password, which is tried to WiFi APs within range. """
 
-    def __init__(self):
+    def __init__(self, displayin):
         #  Check if we are already connected
         self.ip_address = None
         self.wifi_strenth = None
@@ -100,12 +100,13 @@ class ConnectWiFi:
         self.searh_list = []
         self.ssid_list = []
         self.mqttclient = None
+        self.display = displayin
         if network.WLAN(network.STA_IF).config('essid') != '':
-            display.row_by_row_text("Connected to network %s" % network.WLAN(network.STA_IF).config('essid'), 'fuschia')
+            self.display.row_by_row_text("Connected to network %s" % network.WLAN(network.STA_IF).config('essid'), 'fuschia')
             self.use_ssid = network.WLAN(network.STA_IF).config('essid')
-            display.row_by_row_text(('IP-address: %s' % network.WLAN(network.STA_IF).ifconfig()[0]), 'fuschia')
+            self.display.row_by_row_text(('IP-address: %s' % network.WLAN(network.STA_IF).ifconfig()[0]), 'fuschia')
             self.ip_address = network.WLAN(network.STA_IF).ifconfig()[0]
-            display.row_by_row_text("WiFi-signal strength %s" % (network.WLAN(network.STA_IF).status('rssi')), 'fuschia')
+            self.display.row_by_row_text("WiFi-signal strength %s" % (network.WLAN(network.STA_IF).status('rssi')), 'fuschia')
             self.wifi_strenth = network.WLAN(network.STA_IF).status('rssi')
             self.network_connected = True
             self.use_ssid = network.WLAN(network.STA_IF).config('essid')
@@ -142,7 +143,7 @@ class ConnectWiFi:
                     self.webrepl_started = True
                 except OSError as e:
                     print("WebREPL do not start. Error %s" % e)
-                    display.row_by_row_text("WebREPL do not start. Error %s" % e, 'red')
+                    self.display.row_by_row_text("WebREPL do not start. Error %s" % e, 'red')
                     return False
 
     def set_time(self):
@@ -152,11 +153,11 @@ class ConnectWiFi:
                 self.timeset = True
             except OSError as e:
                 print("No time from NTP server %s! Error %s" % (NTPSERVER, e))
-                display.row_by_row_text("No time from NTP server %s! Error %s" % (NTPSERVER, e), 'red')
+                self.display.row_by_row_text("No time from NTP server %s! Error %s" % (NTPSERVER, e), 'red')
                 self.timeset = True
                 return False
             print("Time: %s " % str(utime.localtime(utime.time())))
-            display.row_by_row_text("Time: %s " % str(utime.localtime(utime.time())), 'white')
+            self.display.row_by_row_text("Time: %s " % str(utime.localtime(utime.time())), 'white')
 
     def search_wifi_networks(self):
         # Begin with adapter reset
@@ -168,34 +169,34 @@ class ConnectWiFi:
             network.WLAN(network.STA_IF).config(dhcp_hostname=DHCP_NAME)
         if NTPSERVER is not None:
             ntptime.host = NTPSERVER
-        display.row_by_row_text("Check what hotspots we see", 'white')
+        self.display.row_by_row_text("Check what hotspots we see", 'green')
         try:
             # Generate list of WiFi hotspots in range
             self.ssid_list = network.WLAN(network.STA_IF).scan()
             utime.sleep(3)
         except self.ssid_list == []:
             print("No WiFi-networks within range!")
-            display.row_by_row_text("No WiFi-networks within range!", 'red')
+            self.display.row_by_row_text("No WiFi-networks within range!", 'red')
             utime.sleep(10)
         except OSError:
             return False
 
         if len(self.ssid_list) > 0:
-            display.row_by_row_text("Found following hotspots:", 'white')
+            self.display.row_by_row_text("Found following hotspots:", 'green')
             for i in self.ssid_list:
                 display.row_by_row_text(i[0].decode(), 'white')
 
         if self.predefined is True:
             #  Network to be connected is in the parameters.py. Check if SSID1 or SSID2 is in the list
             print("Checking if paramaters.py networks are in the list...")
-            display.row_by_row_text("Checking predefined networks...", 'white')
+            self.display.row_by_row_text("Checking predefined networks...", 'white')
             try:
                 self.searh_list = [item for item in self.ssid_list if item[0].decode() == SSID1 or
                                    item[0].decode() == SSID2]
             except ValueError:
                 # SSDI not found within signal range
                 print("Parameters.py SSIDs not found in the signal range!")
-                display.row_by_row_text("Parameters.py SSIDs not found in the signal range!", 'red')
+                self.display.row_by_row_text("Parameters.py SSIDs not found in the signal range!", 'red')
                 utime.sleep(10)
                 return False
             # If both are found, select one which has highest stregth
@@ -204,16 +205,16 @@ class ConnectWiFi:
                 if self.searh_list[0][-3] > self.searh_list[1][-3]:
                     self.use_ssid = self.searh_list[0][0].decode()
                     self.use_password = PASSWORD1
-                    display.row_by_row_text("Using hotspot: %s" % self.use_ssid, 'yellow')
+                    self.display.row_by_row_text("Using hotspot: %s" % self.use_ssid, 'yellow')
                 else:
                     self.use_ssid = self.searh_list[1][0].decode()
                     self.use_password = PASSWORD2
-                    display.row_by_row_text("Using hotspot: %s" % self.use_ssid, 'yellow')
+                    self.display.row_by_row_text("Using hotspot: %s" % self.use_ssid, 'yellow')
             else:
                 # only 1 in the list
                 self.use_ssid = self.searh_list[0][0].decode()
                 self.use_password = PASSWORD1
-                display.row_by_row_text("Using hotspot: %s" % self.use_ssid, 'yellow')
+                self.display.row_by_row_text("Using hotspot: %s" % self.use_ssid, 'yellow')
 
         if self.predefined is False:
             #  Networks not defined in the parameters.py, let's try password to any WiFi order by signal strength
@@ -232,13 +233,13 @@ class ConnectWiFi:
     def connect_to_network(self):
         #  We know which network we should connect to, but shall we connect?
         print("Connecting to AP %s ..." % self.use_ssid)
-        display.row_by_row_text("Connecting to AP %s ..." % self.use_ssid, 'white')
+        self.display.row_by_row_text("Connecting to AP %s ..." % self.use_ssid, 'green')
         try:
             network.WLAN(network.STA_IF).connect(self.use_ssid, self.use_password)
             utime.sleep(5)
         except network.WLAN(network.STA_IF).ifconfig()[0] == '0.0.0.0':
             print("No IP address!")
-            display.row_by_row_text("No IP address!", 'red')
+            self.display.row_by_row_text("No IP address!", 'red')
             utime.sleep(10)
             return False
         except OSError:
@@ -247,29 +248,31 @@ class ConnectWiFi:
             if network.WLAN(network.STA_IF).ifconfig()[0] != '0.0.0.0':
                 self.set_time()
                 self.start_webrepl()
-                display.row_by_row_text("Connected to network %s" % network.WLAN(network.STA_IF).config('essid'),
-                                        'white')
+                self.display.row_by_row_text("Connected to network %s" % network.WLAN(network.STA_IF).config('essid'),
+                                        'green')
                 self.use_ssid = network.WLAN(network.STA_IF).config('essid')
-                display.row_by_row_text(('IP-address: %s' % network.WLAN(network.STA_IF).ifconfig()[0]), 'white')
+                self.display.row_by_row_text(('IP-address: %s' % network.WLAN(network.STA_IF).ifconfig()[0]), 'green')
                 self.ip_address = network.WLAN(network.STA_IF).ifconfig()[0]
-                display.row_by_row_text("WiFi-signal strength %s" % (network.WLAN(network.STA_IF).status('rssi')),
-                                        'white')
+                self.display.row_by_row_text("WiFi-signal strength %s" % (network.WLAN(network.STA_IF).status('rssi')),
+                                        'green')
                 self.wifi_strenth = network.WLAN(network.STA_IF).status('rssi')
                 self.network_connected = True
                 return True
             else:
-                display.row_by_row_text("No network connection! Soft rebooting in 10s...", 'red')
+                self.display.row_by_row_text("No network connection! Soft rebooting in 10s...", 'red')
                 self.network_connected = False
                 utime.sleep(10)
                 reset()
 
-    async def update_status_loop(self):
+    async def collect_carbage_and_update_status_loop(self):
+        #  Update interval 10 seconds
         while True:
             if self.network_connected is True:
                 self.use_ssid = network.WLAN(network.STA_IF).config('essid')
                 self.ip_address = network.WLAN(network.STA_IF).ifconfig()[0]
                 self.wifi_strenth = network.WLAN(network.STA_IF).status('rssi')
-                await asyncio.sleep(1)
+                gc.collect()
+                await asyncio.sleep(10)
 
     def mqtt_init(self):
         config['server'] = MQTT_SERVER
@@ -324,9 +327,11 @@ class TFTDisplay(object):
         self.xpt = Touch(spi=touchspi, cs=Pin(TFT_TOUCH_CS_PIN), int_pin=Pin(TFT_TOUCH_IRQ_PIN),
                          width=240, height=320, x_min=100, x_max=1962, y_min=100, y_max=1900,
                          int_handler=self.touchscreen_press)
-        # Display
+
+        # Display - some digitizers may be rotated 270 degrees!
         self.display = Display(spi=dispspi, cs=Pin(TFT_CS_PIN), dc=Pin(TFT_DC_PIN), rst=Pin(TFT_RST_PIN),
                                width=320, height=240, rotation=90)
+
 
         # Default fonts
         self.unispace = XglcdFont('fonts/Unispace12x24.c', 12, 24)
@@ -350,27 +355,57 @@ class TFTDisplay(object):
         self.diag_count = 0
         self.screen_timeout = False
         self.keyboard = None
+
         # test
         self.connect_to_wifi = True
 
         # loop = asyncio.get_event_loop()
         # loop.create_task(self.run_display())
 
+    def try_to_connect(self, ssid, pwd):
+        """ Return WiFi connection status.
+        Args:
+            pwd: password for the SSID
+        Returns:
+            status of the connection.
+        """
+        status = 0
+        pass
+
+        return status
+
     def touchscreen_press(self, x, y):
-        # Set up Keyboard
+        # TODO: Show first user input screen
+
+
+        # TODO: Ask something from user. Set up Keyboard
         self.keyboard = TouchKeyboard(self.display, self.unispace)
-        """Process touchscreen press events."""
-        if self.keyboard.handle_keypress(x, y, debug=True) is True:
+        print("Value x: %s, value y: %s" % (x, y))
+        """Process touchscreen press events. Disable debug if you do not want to see green circle on the keyboard"""
+        if self.keyboard.handle_keypress(x, y, debug=False) is True:
             self.keyboard.locked = True
-            answer = self.keyboard.kb_text
-            self.keyboard.show_message("Do you want to connect to network?", color565(0, 0, 255))
+            pwd = self.keyboard.kb_text
+            self.keyboard.show_message("Type password", color565(0, 0, 255))
+            try:
+                status = self.try_to_connect(pwd)
+                if status:
+                    # Connection established
+                    msg = "Connection established!: {0}".format(status)
+                    self.keyboard.show_message(msg, color565(255, 0, 0))
+                else:
+                    # Connection not established
+                    msg = "No connection. Try another password!"
+                    self.keyboard.show_message(msg, color565(0, 255, 0))
+            except Exception as e:
+                if hasattr(e, 'message'):
+                    self.keyboard.show_message(e.message[:22],
+                                               color565(255, 255, 255))
+                else:
+                    self.keyboard.show_message(str(e)[:22],
+                                               color565(255, 255, 255))
             self.keyboard.waiting = True
             self.keyboard.locked = False
-            if answer == 'y':
-                self.connect_to_wifi = True
-            else:
-                self.connect_to_wifi = False
-                self.display.cleanup()
+
 
     def row_by_row_text(self, message, color):
         self.color_r, self.color_g, self.color_b = self.colours[color]
@@ -383,6 +418,7 @@ class TFTDisplay(object):
             utime.sleep(5)
             self.display.cleanup()
             self.rownumber = 1
+
 
     async def run_display(self):
 
@@ -434,7 +470,7 @@ class TFTDisplay(object):
         pass
 
     async def show_status_monitor_screen(self):
-        pass
+        self.row_by_row_text("Memory free %s" % gc.mem_free(), 'red')
 
     async def show_display_sleep_screen(self):
         pass
@@ -450,18 +486,23 @@ freq(240000000)
 # Sensor and controller objects
 co2sensor = CO2.MHZ19bCO2(CO2_SENSOR_RX_PIN, CO2_SENSOR_TX_PIN, CO2_SENSOR_UART)
 touchscreenspi = SPI(TOUCHSCREEN_SPI)  # HSPI
-touchscreenspi.init(baudrate=10000000, sck=Pin(TFT_TOUCH_SCLK_PIN), mosi=Pin(TFT_TOUCH_MOSI_PIN),
+# Keep touchscreen baudrate low! If it is too high, you will get wrong values! Do not exceed 2MHz or go below 1MHz
+# Might be related to S/NR of the cabling and connectors
+touchscreenspi.init(baudrate=1200000, sck=Pin(TFT_TOUCH_SCLK_PIN), mosi=Pin(TFT_TOUCH_MOSI_PIN),
                     miso=Pin(TFT_TOUCH_MISO_PIN))
 displayspi = SPI(TFT_SPI)  # VSPI
 displayspi.init(baudrate=40000000, sck=Pin(TFT_CLK_PIN), mosi=Pin(TFT_MOSI_PIN), miso=Pin(TFT_MISO_PIN))
 
+
 display = TFTDisplay(touchscreenspi, displayspi)
+wifinet = ConnectWiFi(display)
 
 
 async def main():
-    global wifinet
+    # global wifinet
+    # Record bootup time
     #  Search available hotspots are be ready for connection
-    wifinet = ConnectWiFi()
+    # wifinet = ConnectWiFi()
 
     """ try:
         await client.connect()
@@ -471,15 +512,15 @@ async def main():
     # asyncio.create_task(mqtt_up_loop()) """
 
     asyncio.create_task(co2sensor.read_co2_loop())
-    asyncio.create_task(wifinet.update_status_loop())
-    asyncio.create_task(show_what_i_do())
+    asyncio.create_task(wifinet.collect_carbage_and_update_status_loop())
+    # asyncio.create_task(show_what_i_do())
 
     while True:
         if (display.connect_to_wifi is True) and (wifinet.network_connected is False):
             wifinet.connect_to_network()
             await asyncio.sleep(10)
-        if wifinet.network_connected is True:
-            await display.show_measurement_screen()
+        """ if wifinet.network_connected is True:
+            await display.show_measurement_screen() """
         await asyncio.sleep(1)
 
 asyncio.run(main())
