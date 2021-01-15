@@ -19,6 +19,7 @@ Libraries:
 
 13.01.2020: Jari Hiltunen
 14.01.2020: Network part shall be ok if parameters.py used and communicates with the display.
+15.01.2020: Added some welcome stuff and fixed SPI buss speed so that touchscreen and keyboard works ok.
 
 This code is in its very beginning steps!
 
