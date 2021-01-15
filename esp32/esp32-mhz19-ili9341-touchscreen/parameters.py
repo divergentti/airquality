@@ -1,9 +1,22 @@
+SSID1 = 'ap1'
+PASSWORD1 = 'pw1'
+SSID2 = 'ap2'
+PASSWORD2 = 'pw2'
+MQTT_PORT = '1883'
+MQTT_USER = 'fillin'
+MQTT_PASSWORD = 'fillin'
+MQTT_SERVER = 'fillin'
+WEBREPL_PASSWORD = "pwd"
+CLIENT_ID = "ESP32-CO2-PARTICLE"
+DHCP_NAME = "ESP32-CO2-PARTICLE"
+TOPIC_ERRORS = 'virheet/koti/esp32'
+NTPSERVER = 'pool.ntp.org'
 CO2_SENSOR_TX_PIN = 17
 CO2_SENSOR_RX_PIN = 16
 CO2_SENSOR_UART = 1
 PARTICLE_SENSOR_UART = 0
 PARTICLE_SENSOR_TX = 1
-PARTICLE_SENSOR_TX = 3
+PARTICLE_SENSOR_RX = 3
 # https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/spi_master.html
 TFT_SPI = 1  # HSPI = ID1
 TFT_DC_PIN = 4
