@@ -51,7 +51,6 @@ except OSError:  # open failed
     raise
 
 #  Globals
-# wifinet = None
 
 
 def restart_and_reconnect():
@@ -63,9 +62,19 @@ def restart_and_reconnect():
 
 def resolve_date():
     (year, month, mdate, hour, minute, second, wday, yday) = utime.localtime()
-    date = "%s.%s.%s time %s:%s:%s" % (mdate, month, year, "{:02d}".format(hour), "{:02d}".format(minute), "{:02d}".
-                                       format(second))
-    return date
+    """ Simple DST for Finland """
+    summer_march = utime.mktime((year, 3, (14 - (int(5 * year / 4 + 1)) % 7), 1, 0, 0, 0, 0, 0))
+    winter_december = utime.mktime((year, 10, (7 - (int(5 * year / 4 + 1)) % 7), 1, 0, 0, 0, 0, 0))
+    if utime.mktime(utime.localtime()) < summer_march:
+        dst = utime.localtime(utime.mktime(utime.localtime()) + 7200)
+    elif utime.mktime(utime.localtime()) < winter_december:
+        dst = utime.localtime(utime.mktime(utime.localtime()) + 7200)
+    else:
+        dst = utime.localtime(utime.mktime(utime.localtime()) + 10800)
+    (year, month, mdate, hour, minute, second, wday, yday) = dst
+    day = "%s.%s.%s" % (wday, month, year)
+    time = "%s:%s:%s" % ("{:02d}".format(hour), "{:02d}".format(minute), "{:02d}".format(second))
+    return day, time
 
 
 async def error_reporting(error):
@@ -152,19 +161,17 @@ class ConnectWiFi(object):
                 ntptime.settime()
                 self.timeset = True
             except OSError as e:
-                print("No time from NTP server %s! Error %s" % (NTPSERVER, e))
                 self.display.row_by_row_text("No time from NTP server %s! Error %s" % (NTPSERVER, e), 'red')
                 self.timeset = True
                 return False
-            print("Time: %s " % str(utime.localtime(utime.time())))
             self.display.row_by_row_text("Time: %s " % str(utime.localtime(utime.time())), 'white')
 
     def search_wifi_networks(self):
         # Begin with adapter reset
         network.WLAN(network.STA_IF).active(False)
-        utime.sleep(1)
-        network.WLAN(network.STA_IF).active(True)
         utime.sleep(2)
+        network.WLAN(network.STA_IF).active(True)
+        utime.sleep(3)
         if DHCP_NAME is not None:
             network.WLAN(network.STA_IF).config(dhcp_hostname=DHCP_NAME)
         if NTPSERVER is not None:
@@ -173,7 +180,7 @@ class ConnectWiFi(object):
         try:
             # Generate list of WiFi hotspots in range
             self.ssid_list = network.WLAN(network.STA_IF).scan()
-            utime.sleep(3)
+            utime.sleep(5)
         except self.ssid_list == []:
             print("No WiFi-networks within range!")
             self.display.row_by_row_text("No WiFi-networks within range!", 'red')
@@ -188,14 +195,12 @@ class ConnectWiFi(object):
 
         if self.predefined is True:
             #  Network to be connected is in the parameters.py. Check if SSID1 or SSID2 is in the list
-            print("Checking if paramaters.py networks are in the list...")
             self.display.row_by_row_text("Checking predefined networks...", 'white')
             try:
                 self.searh_list = [item for item in self.ssid_list if item[0].decode() == SSID1 or
                                    item[0].decode() == SSID2]
             except ValueError:
                 # SSDI not found within signal range
-                print("Parameters.py SSIDs not found in the signal range!")
                 self.display.row_by_row_text("Parameters.py SSIDs not found in the signal range!", 'red')
                 utime.sleep(10)
                 return False
@@ -230,17 +235,15 @@ class ConnectWiFi(object):
                     self.use_ssid = self.ssid_list[z][0].decode()
                     z = +1
 
-    def connect_to_network(self):
+    async def connect_to_network(self):
         #  We know which network we should connect to, but shall we connect?
-        print("Connecting to AP %s ..." % self.use_ssid)
         self.display.row_by_row_text("Connecting to AP %s ..." % self.use_ssid, 'green')
         try:
             network.WLAN(network.STA_IF).connect(self.use_ssid, self.use_password)
-            utime.sleep(5)
-        except network.WLAN(network.STA_IF).ifconfig()[0] == '0.0.0.0':
-            print("No IP address!")
-            self.display.row_by_row_text("No IP address!", 'red')
             utime.sleep(10)
+        except network.WLAN(network.STA_IF).ifconfig()[0] == '0.0.0.0':
+            self.display.row_by_row_text("No IP address!", 'red')
+            utime.sleep(5)
             return False
         except OSError:
             pass
@@ -322,22 +325,24 @@ class TFTDisplay(object):
                         'charteuse': [128, 255, 0], 'spring_green': [0, 255, 128], 'indigo': [128, 0, 255],
                         'dodger_blue': [0, 128, 255], 'cyan': [128, 255, 255], 'pink': [255, 128, 255],
                         'light_yellow': [255, 255, 128], 'light_coral': [255, 128, 128], 'light_green': [128, 255, 128],
-                        'white': [255, 255, 255]}
-
-        self.xpt = Touch(spi=touchspi, cs=Pin(TFT_TOUCH_CS_PIN), int_pin=Pin(TFT_TOUCH_IRQ_PIN),
-                         width=240, height=320, x_min=100, x_max=1962, y_min=100, y_max=1900,
-                         int_handler=self.touchscreen_press)
+                        'white': [255, 255, 255], 'black': [0, 0, 0]}
 
         # Display - some digitizers may be rotated 270 degrees!
         self.display = Display(spi=dispspi, cs=Pin(TFT_CS_PIN), dc=Pin(TFT_DC_PIN), rst=Pin(TFT_RST_PIN),
                                width=320, height=240, rotation=90)
-
 
         # Default fonts
         self.unispace = XglcdFont('fonts/Unispace12x24.c', 12, 24)
         self.fixedfont = XglcdFont('fonts/FixedFont5x8.c', 5, 8, 32, 96)
         self.arcadepix = XglcdFont('fonts/ArcadePix9x11.c', 9, 11)
         self.color_r, self.color_g, self.color_b = self.colours['white']
+        # Background colours
+        self.color_r_b, self.color_g_b, self.color_b_b = self.colours['black']
+
+        # Touchscreen
+        self.xpt = Touch(spi=touchspi, cs=Pin(TFT_TOUCH_CS_PIN), int_pin=Pin(TFT_TOUCH_IRQ_PIN),
+                         width=240, height=320, x_min=100, x_max=1962, y_min=100, y_max=1900,
+                         int_handler=self.activate_keyboard)
 
         self.screens = [self.show_measurement_screen,
                         self.show_trends_screen(),
@@ -355,6 +360,7 @@ class TFTDisplay(object):
         self.diag_count = 0
         self.screen_timeout = False
         self.keyboard = None
+        self.keyboard_show = False
 
         # test
         self.connect_to_wifi = True
@@ -378,10 +384,18 @@ class TFTDisplay(object):
         # TODO: Show first user input screen
 
 
-        # TODO: Ask something from user. Set up Keyboard
+        # TODO: create selection list of available SSID's
+        ssids = wifinet.ssid_list
+
+        # TODO: Ask password from user. Set up Keyboard
+
+
+    def activate_keyboard(self, x, y):
+        #  Setup keyboard
         self.keyboard = TouchKeyboard(self.display, self.unispace)
-        print("Value x: %s, value y: %s" % (x, y))
-        """Process touchscreen press events. Disable debug if you do not want to see green circle on the keyboard"""
+        self.keyboard_show = True
+
+        """Process touchscreen press events. Disable debug if you do not want to see green circle on the keyboard """
         if self.keyboard.handle_keypress(x, y, debug=False) is True:
             self.keyboard.locked = True
             pwd = self.keyboard.kb_text
@@ -405,13 +419,14 @@ class TFTDisplay(object):
                                                color565(255, 255, 255))
             self.keyboard.waiting = True
             self.keyboard.locked = False
+            self.keyboard_show = False
 
 
     def row_by_row_text(self, message, color):
         self.color_r, self.color_g, self.color_b = self.colours[color]
         self.fontheight = self.arcadepix.height
         self.rowheight = self.fontheight + 2  # 2 pixel space between rows
-        self.display.draw_text(0, self.rowheight * self.rownumber, message, self.arcadepix,
+        self.display.draw_text(5, self.rowheight * self.rownumber, message, self.arcadepix,
                                color565(self.color_r, self.color_g, self.color_b))
         self.rownumber += 1
         if self.rownumber >= self.maxrows:
@@ -422,7 +437,7 @@ class TFTDisplay(object):
 
     async def run_display(self):
 
-        await self.show_welcome_screen()
+        # await self.show_welcome_screen()
 
         """ 
 
@@ -443,17 +458,57 @@ class TFTDisplay(object):
             await self.screens[self.active_screen]()
             await asyncio.sleep(Display.SCREEN_REFRESH_IN_S) """
 
+        while self.keyboard_show is False:
+            await self.show_welcome_screen()
+
+
     async def next_screen(self):
         self.next_screen = (self.active_screen + 1) % len(self.screens)
 
     def screen_timeout_callback(self, t):
         self.screen_timeout = True
 
-    async def show_welcome_screen(self):
-        self.row_by_row_text("Booting up", 'blue')
 
-        await asyncio.sleep(9)
-        self.display.cleanup()
+    async def show_welcome_screen(self):
+        # self.display.clear()
+        welcome1 = "AirQuality v.0.01"
+        welcome2 = "Date %s" % resolve_date()[0]
+        welcome3 = "Time is %s" % resolve_date()[1]
+        welcome4 = "CO2 %s" % co2sensor.co2_value
+        welcome5 = "CO2 average %s" % co2sensor.co2_average
+        welcome6 = "Memory free %s" % gc.mem_free()
+        self.fontheight = self.unispace.height
+        self.rowheight = self.fontheight + 2  # 2 pixel space between rows
+
+        self.color_r, self.color_g, self.color_b = self.colours['yellow']
+        self.display.fill_rectangle(0, 0, self.display.width, self.display.height,
+                                    color565(self.color_r, self.color_g, self.color_b))
+        self.color_r, self.color_g, self.color_b = self.colours['light_green']
+        self.display.fill_rectangle(10, 10, 300, 220, color565(self.color_r, self.color_g, self.color_b))
+        self.color_r, self.color_g, self.color_b = self.colours['blue']
+        self.color_r_b, self.color_g_b, self.color_b_b = self.colours['light_green']
+
+        self.display.draw_text(12, 25, welcome1, self.unispace, color565(self.color_r, self.color_g, self.color_b),
+                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+        self.display.draw_text(12, 55 + self.rowheight, welcome2, self.unispace,
+                               color565(self.color_r, self.color_g, self.color_b),
+                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+        self.display.draw_text(12, 55 + self.rowheight*2, welcome3, self.unispace,
+                               color565(self.color_r, self.color_g, self.color_b),
+                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+        self.display.draw_text(12, 55 + self.rowheight * 3, welcome4, self.unispace,
+                               color565(self.color_r, self.color_g, self.color_b),
+                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+        self.display.draw_text(12, 55 + self.rowheight * 4, welcome5, self.unispace,
+                               color565(self.color_r, self.color_g, self.color_b),
+                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+        self.display.draw_text(12, 55 + self.rowheight * 5, welcome6, self.unispace,
+                               color565(self.color_r, self.color_g, self.color_b),
+                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+
+        gc.collect()
+        await asyncio.sleep(1)
+
 
     async def show_network_screen(self):
         pass
@@ -475,7 +530,7 @@ class TFTDisplay(object):
     async def show_display_sleep_screen(self):
         pass
 
-    async def show_decibel_screen(self):
+    async def show_network_setup_screen(self):
         pass
 
 
@@ -493,16 +548,12 @@ touchscreenspi.init(baudrate=1200000, sck=Pin(TFT_TOUCH_SCLK_PIN), mosi=Pin(TFT_
 displayspi = SPI(TFT_SPI)  # VSPI
 displayspi.init(baudrate=40000000, sck=Pin(TFT_CLK_PIN), mosi=Pin(TFT_MOSI_PIN), miso=Pin(TFT_MISO_PIN))
 
-
+# Initialize display object prior to wifinet-object!
 display = TFTDisplay(touchscreenspi, displayspi)
 wifinet = ConnectWiFi(display)
 
 
 async def main():
-    # global wifinet
-    # Record bootup time
-    #  Search available hotspots are be ready for connection
-    # wifinet = ConnectWiFi()
 
     """ try:
         await client.connect()
@@ -513,14 +564,20 @@ async def main():
 
     asyncio.create_task(co2sensor.read_co2_loop())
     asyncio.create_task(wifinet.collect_carbage_and_update_status_loop())
-    # asyncio.create_task(show_what_i_do())
+    asyncio.create_task(show_what_i_do())
+
+    if (display.connect_to_wifi is True) and (wifinet.network_connected is False):
+        await wifinet.connect_to_network()
+
+    if wifinet.network_connected is True:
+        display.row_by_row_text("Network up, begin operations", 'blue')
+        await display.run_display()
+    else:
+        display.row_by_row_text("Network down, running setup", 'yellow')
+        await display.show_network_setup_screen()
 
     while True:
-        if (display.connect_to_wifi is True) and (wifinet.network_connected is False):
-            wifinet.connect_to_network()
-            await asyncio.sleep(10)
-        """ if wifinet.network_connected is True:
-            await display.show_measurement_screen() """
+
         await asyncio.sleep(1)
 
 asyncio.run(main())
