@@ -366,11 +366,6 @@ class TFTDisplay(object):
         # test
         self.connect_to_wifi = True
 
-        # Create loops here!
-        loop = asyncio.get_event_loop()
-        loop.create_task(co2sensor.read_co2_loop())
-        loop.create_task(wifinet.collect_carbage_and_update_status_loop())
-        loop.create_task(show_what_i_do())
 
         # loop = asyncio.get_event_loop()
         # loop.create_task(self.run_display())
@@ -568,8 +563,11 @@ async def main():
         print("Error %s. Perhaps mqtt username or password is wrong or missing or broker down?" % ex)
         raise
     # asyncio.create_task(mqtt_up_loop()) """
-
-    # Create async loops within display object
+    # Create loops here!
+    loop = asyncio.get_event_loop()
+    loop.create_task(co2sensor.read_co2_loop())
+    loop.create_task(wifinet.collect_carbage_and_update_status_loop())
+    loop.create_task(show_what_i_do())
 
     if (display.connect_to_wifi is True) and (wifinet.network_connected is False):
         await wifinet.connect_to_network()
