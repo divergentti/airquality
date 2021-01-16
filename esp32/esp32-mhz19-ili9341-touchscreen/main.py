@@ -82,7 +82,7 @@ def resolve_date():
     else:
         dst = utime.localtime(utime.mktime(utime.localtime()) + 10800)
     (year, month, mdate, hour, minute, second, wday, yday) = dst
-    day = "%s.%s.%s" % (wday, month, year)
+    day = "%s.%s.%s" % (mdate, month, year)
     time = "%s:%s:%s" % ("{:02d}".format(hour), "{:02d}".format(minute), "{:02d}".format(second))
     return day, time
 
