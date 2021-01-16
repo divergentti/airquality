@@ -570,7 +570,7 @@ class PSensorPMS7003:
         self.sensor = UART(uart)
         self.sensor.init(baudrate=9600, bits=8, parity=None, stop=1, rx=rxpin, tx=txpin)
         self.sensor_activation_time = utime.time()
-        self.value_read_time = utime.time()
+        self.value_read_time = None
         self.pms_dictionary = None
 
     def __repr__(self):
@@ -611,6 +611,8 @@ class PSensorPMS7003:
 
             if checksum != data[PSensorPMS7003.PMS_CHECKSUM]:
                 continue
+
+            self.value_read_time = utime.time()
 
             self.pms_dictionary = {
                 'FRAME_LENGTH': data[PSensorPMS7003.PMS_FRAME_LENGTH],
