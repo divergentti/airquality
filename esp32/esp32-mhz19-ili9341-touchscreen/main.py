@@ -565,8 +565,8 @@ class PSensorPMS7003:
     PMS_ERROR = 14
     PMS_CHECKSUM = 15
 
-    #  Default UART0, rx=3, tx=1, you may change these in the call
-    def __init__(self, rxpin=3, txpin=1, uart=0):
+    #  Default UART1, rx=32, tx=33. Don't use UART0 if you want to use REPL!
+    def __init__(self, rxpin=32, txpin=33, uart=1):
         self.sensor = UART(uart)
         self.sensor.init(baudrate=9600, bits=8, parity=None, stop=1, rx=rxpin, tx=txpin)
         self.sensor_activation_time = utime.time()
@@ -575,12 +575,6 @@ class PSensorPMS7003:
 
     def __repr__(self):
         return "PSensorPMS7003({})".format(self.sensor)
-
-    async def writer(self, data):
-        port = asyncio.StreamWriter(self.sensor, {})
-        port.write(data)
-        await port.drain()    # Transmit begins
-        await asyncio.sleep(2)   # Minimum read frequency 2 seconds
 
     async def reader(self, chars):
         port = asyncio.StreamReader(self.sensor)
@@ -593,50 +587,20 @@ class PSensorPMS7003:
             return False
         return True
 
-    @staticmethod
-    def _format_bytearray(buffer):
-        return "".join("0x{:02x} ".format(i) for i in buffer)
-
-    def _send_cmd(self, request, response):
-
-        nr_of_written_bytes = self.sensor.write(request)
-
-        if nr_of_written_bytes != len(request):
-            print('Failed to write to UART')
-
-        if response:
-            utime.sleep(2)
-            buffer = self.sensor.read(len(response))
-
-            if buffer != response:
-                print('Wrong UART response, expecting: {}, getting: {}'
-                      .format(PSensorPMS7003._format_bytearray(response), PSensorPMS7003._format_bytearray(buffer)))
-
-    async def read_pms_loop(self):
-        while True:
-            print("Reading dictionary, wait...")
-            try:
-                # await self.writer(self.READ_COMMAND)
-                self.pms_dictionary = self.read()
-            except TypeError as e:
-                print("Error %s", e)
-                pass
-            await asyncio.sleep(1)
-
-    def read(self):
+    async def read_async_loop(self):
 
         while True:
 
-            first_byte = self.sensor.read(1)
+            first_byte = await self.reader(1)
             if not self._assert_byte(first_byte, PSensorPMS7003.START_BYTE_1):
                 continue
 
-            second_byte = self.sensor.read(1)
+            second_byte = await self.reader(1)
             if not self._assert_byte(second_byte, PSensorPMS7003.START_BYTE_2):
                 continue
 
             # we are reading 30 bytes left
-            read_bytes = self.sensor.read(30)
+            read_bytes = await self.reader(30)
             if len(read_bytes) < 30:
                 continue
 
@@ -648,7 +612,7 @@ class PSensorPMS7003:
             if checksum != data[PSensorPMS7003.PMS_CHECKSUM]:
                 continue
 
-            return {
+            self.pms_dictionary = {
                 'FRAME_LENGTH': data[PSensorPMS7003.PMS_FRAME_LENGTH],
                 'PM1_0': data[PSensorPMS7003.PMS_PM1_0],
                 'PM2_5': data[PSensorPMS7003.PMS_PM2_5],
@@ -664,8 +628,7 @@ class PSensorPMS7003:
                 'PCNT_10_0': data[PSensorPMS7003.PMS_PCNT_10_0],
                 'VERSION': data[PSensorPMS7003.PMS_VERSION],
                 'ERROR': data[PSensorPMS7003.PMS_ERROR],
-                'CHECKSUM': data[PSensorPMS7003.PMS_CHECKSUM],
-            }
+                'CHECKSUM': data[PSensorPMS7003.PMS_CHECKSUM], }
 
 
 class AirQuality(object):
@@ -676,7 +639,8 @@ class AirQuality(object):
 
     async def update_airqualiy_loop(self):
         while True:
-            self.aqinndex = AQI.aqi(self.pms.pms_dictionary['PM2_5_ATM'], self.pms.pms_dictionary['PM10_0_ATM'])
+            if self.pms.pms_dictionary is not None:
+                self.aqinndex = AQI.aqi(self.pms.pms_dictionary['PM2_5_ATM'], self.pms.pms_dictionary['PM10_0_ATM'])
             await asyncio.sleep(1)
 
 
@@ -685,7 +649,7 @@ async def show_what_i_do():
     # esp.osdebug(all)
     # esp.osdebug(0)  # to UART0
     while True:
-        # print("PMS dictionary: %s" % pms.pms_dictionary)
+        print("PMS dictionary: %s" % pms.pms_dictionary)
         print("Air quality index: %s " % airquality.aqinndex)
         print("CO2: %s" % co2sensor.co2_value)
         print("Average: %s" % co2sensor.co2_average)
@@ -732,7 +696,7 @@ async def main():
     # Create loops here!
     loop = asyncio.get_event_loop()
     loop.create_task(co2sensor.read_co2_loop())
-    loop.create_task(pms.read_pms_loop())
+    loop.create_task(pms.read_async_loop())
     loop.create_task(airquality.update_airqualiy_loop())
     loop.create_task(wifinet.collect_carbage_and_update_status_loop())
     loop.create_task(show_what_i_do())
