@@ -10,8 +10,13 @@ from the display either with predefined SSID name and password, or password for 
 Libraries:
 1. MQTT_AS https://github.com/peterhinch/micropython-mqtt/blob/master/mqtt_as/mqtt_as.py
 2. MHZ19B.py in this blob
+   - RX pin goes to sensor TX ping and vice versa
+   - Use 5V
 3. ILI9341 display, touchscreen, fonts and keyboard https://github.com/rdagger/micropython-ili9341
    You may drive display LED from GPIO if display has transistor in the LED pin. Otherwise connect LED to 3.3V
+4. PMS7003.py from https://github.com/pkucmus/micropython-pms7003/blob/master/pms7003.py
+   - Use 3.3V instead of 5V!
+5. AQI.py from https://github.com/pkucmus/micropython-pms7003/blob/master/aqi.py
 
 !! DO NOT USE PyCharm to upload fonts or images to the ESP32! Use command ampy -p COMx directoryname instead!
    PyCharm can not handle directories in ESP32. For some reason it combines name of the directory and file to one file.
@@ -20,11 +25,12 @@ Libraries:
 13.01.2020: Jari Hiltunen
 14.01.2020: Network part shall be ok if parameters.py used and communicates with the display.
 15.01.2020: Added some welcome stuff and fixed SPI buss speed so that touchscreen and keyboard works ok.
+16.01.2020: Added PMS7004 particle sensor reading. Dictionary is passed to the simple air quality calculation
 
 This code is in its very beginning steps!
 
 """
-from machine import SPI, Pin, reset, freq
+from machine import SPI, UART, Pin, reset, freq, reset_cause
 import uasyncio as asyncio
 import utime
 import gc
@@ -37,6 +43,8 @@ from XPT2046 import Touch
 from ILI9341 import Display, color565
 from XGLCD_FONT import XglcdFont
 from TOUCH_KEYBOARD import TouchKeyboard
+import struct
+from AQI import AQI
 # For testing
 # import esp
 
@@ -46,7 +54,8 @@ try:
     from parameters import SSID1, SSID2, PASSWORD1, PASSWORD2, MQTT_SERVER, MQTT_PASSWORD, MQTT_USER, MQTT_PORT, \
         CLIENT_ID, TOPIC_ERRORS, CO2_SENSOR_RX_PIN, CO2_SENSOR_TX_PIN, CO2_SENSOR_UART, TFT_CS_PIN, TFT_DC_PIN, \
         TFT_TOUCH_MISO_PIN, TFT_TOUCH_CS_PIN, TFT_TOUCH_IRQ_PIN, TFT_TOUCH_MOSI_PIN, TFT_TOUCH_SCLK_PIN, TFT_CLK_PIN, \
-        TFT_RST_PIN, TFT_MISO_PIN, TFT_MOSI_PIN, TFT_SPI, TOUCHSCREEN_SPI, WEBREPL_PASSWORD, NTPSERVER, DHCP_NAME
+        TFT_RST_PIN, TFT_MISO_PIN, TFT_MOSI_PIN, TFT_SPI, TOUCHSCREEN_SPI, WEBREPL_PASSWORD, NTPSERVER, DHCP_NAME, \
+        PARTICLE_SENSOR_UART, PARTICLE_SENSOR_TX, PARTICLE_SENSOR_RX
 except OSError:  # open failed
     print("parameter.py-file missing! Can not continue!")
     raise
@@ -86,17 +95,6 @@ async def error_reporting(error):
     # await client.publish(TOPIC_ERRORS, str(errormessage), retain=False)
 
 
-async def show_what_i_do():
-    MQTTClient.DEBUG = False
-    # esp.osdebug(all)
-    # esp.osdebug(0)  # to UART0
-    while True:
-        print("CO2: %s" % co2sensor.co2_value)
-        print("Average: %s" % co2sensor.co2_average)
-        print("-------")
-        await asyncio.sleep(1)
-
-
 class ConnectWiFi(object):
     """ This class creates network object for WiFi-connection. SSID may be defined in the parameters.py or
     user may input a password, which is tried to WiFi APs within range. """
@@ -112,11 +110,13 @@ class ConnectWiFi(object):
         self.mqttclient = None
         self.display = displayin
         if network.WLAN(network.STA_IF).config('essid') != '':
-            self.display.row_by_row_text("Connected to network %s" % network.WLAN(network.STA_IF).config('essid'), 'fuschia')
+            self.display.row_by_row_text("Connected to network %s" % network.WLAN(network.STA_IF).config('essid'),
+                                         'fuschia')
             self.use_ssid = network.WLAN(network.STA_IF).config('essid')
             self.display.row_by_row_text(('IP-address: %s' % network.WLAN(network.STA_IF).ifconfig()[0]), 'fuschia')
             self.ip_address = network.WLAN(network.STA_IF).ifconfig()[0]
-            self.display.row_by_row_text("WiFi-signal strength %s" % (network.WLAN(network.STA_IF).status('rssi')), 'fuschia')
+            self.display.row_by_row_text("WiFi-signal strength %s" % (network.WLAN(network.STA_IF).status('rssi')),
+                                         'fuschia')
             self.wifi_strenth = network.WLAN(network.STA_IF).status('rssi')
             self.network_connected = True
             self.use_ssid = network.WLAN(network.STA_IF).config('essid')
@@ -253,12 +253,12 @@ class ConnectWiFi(object):
                 self.set_time()
                 self.start_webrepl()
                 self.display.row_by_row_text("Connected to network %s" % network.WLAN(network.STA_IF).config('essid'),
-                                        'green')
+                                             'green')
                 self.use_ssid = network.WLAN(network.STA_IF).config('essid')
                 self.display.row_by_row_text(('IP-address: %s' % network.WLAN(network.STA_IF).ifconfig()[0]), 'green')
                 self.ip_address = network.WLAN(network.STA_IF).ifconfig()[0]
                 self.display.row_by_row_text("WiFi-signal strength %s" % (network.WLAN(network.STA_IF).status('rssi')),
-                                        'green')
+                                             'green')
                 self.wifi_strenth = network.WLAN(network.STA_IF).status('rssi')
                 self.network_connected = True
                 return True
@@ -362,10 +362,10 @@ class TFTDisplay(object):
         self.screen_timeout = False
         self.keyboard = None
         self.keyboard_show = False
+        self.all_ok = True
 
         # test
         self.connect_to_wifi = True
-
 
         # loop = asyncio.get_event_loop()
         # loop.create_task(self.run_display())
@@ -385,12 +385,10 @@ class TFTDisplay(object):
     def touchscreen_press(self, x, y):
         # TODO: Show first user input screen
 
-
         # TODO: create selection list of available SSID's
         ssids = wifinet.ssid_list
 
         # TODO: Ask password from user. Set up Keyboard
-
 
     def activate_keyboard(self, x, y):
         #  Setup keyboard
@@ -423,7 +421,6 @@ class TFTDisplay(object):
             self.keyboard.locked = False
             self.keyboard_show = False
 
-
     def row_by_row_text(self, message, color):
         self.color_r, self.color_g, self.color_b = self.colours[color]
         self.fontheight = self.arcadepix.height
@@ -435,7 +432,6 @@ class TFTDisplay(object):
             utime.sleep(5)
             self.display.cleanup()
             self.rownumber = 1
-
 
     async def run_display(self):
 
@@ -461,8 +457,11 @@ class TFTDisplay(object):
             await asyncio.sleep(Display.SCREEN_REFRESH_IN_S) """
 
         while self.keyboard_show is False:
+            if self.all_ok is True:
+                self.draw_all_ok_background()
+            else:
+                self.draw_error_background()
             await self.show_welcome_screen()
-
 
     async def next_screen(self):
         self.next_screen = (self.active_screen + 1) % len(self.screens)
@@ -470,18 +469,7 @@ class TFTDisplay(object):
     def screen_timeout_callback(self, t):
         self.screen_timeout = True
 
-
-    async def show_welcome_screen(self):
-        # self.display.clear()
-        welcome1 = "AirQuality v.0.01"
-        welcome2 = "Date %s" % resolve_date()[0]
-        welcome3 = "Time is %s" % resolve_date()[1]
-        welcome4 = "CO2 %s" % co2sensor.co2_value
-        welcome5 = "CO2 average %s" % co2sensor.co2_average
-        welcome6 = "Memory free %s" % gc.mem_free()
-        self.fontheight = self.unispace.height
-        self.rowheight = self.fontheight + 2  # 2 pixel space between rows
-
+    def draw_all_ok_background(self):
         self.color_r, self.color_g, self.color_b = self.colours['yellow']
         self.display.fill_rectangle(0, 0, self.display.width, self.display.height,
                                     color565(self.color_r, self.color_g, self.color_b))
@@ -490,6 +478,25 @@ class TFTDisplay(object):
         self.color_r, self.color_g, self.color_b = self.colours['blue']
         self.color_r_b, self.color_g_b, self.color_b_b = self.colours['light_green']
 
+    def draw_error_background(self):
+        self.color_r, self.color_g, self.color_b = self.colours['red']
+        self.display.fill_rectangle(0, 0, self.display.width, self.display.height,
+                                    color565(self.color_r, self.color_g, self.color_b))
+        self.color_r, self.color_g, self.color_b = self.colours['orange']
+        self.display.fill_rectangle(10, 10, 300, 220, color565(self.color_r, self.color_g, self.color_b))
+        self.color_r, self.color_g, self.color_b = self.colours['white']
+        self.color_r_b, self.color_g_b, self.color_b_b = self.colours['orange']
+
+
+    async def show_welcome_screen(self):
+        welcome1 = "AirQuality v.0.01"
+        welcome2 = "Date %s" % resolve_date()[0]
+        welcome3 = "Time is %s" % resolve_date()[1]
+        welcome4 = "CO2 %s / average %s" % (co2sensor.co2_value, co2sensor.co2_average)
+        welcome5 = "Air Quality %s" % airquality.aqinndex
+        welcome6 = "Memory free %s" % gc.mem_free()
+        self.fontheight = self.unispace.height
+        self.rowheight = self.fontheight + 2  # 2 pixel space between rows
         self.display.draw_text(12, 25, welcome1, self.unispace, color565(self.color_r, self.color_g, self.color_b),
                                color565(self.color_r_b, self.color_g_b, self.color_b_b))
         self.display.draw_text(12, 55 + self.rowheight, welcome2, self.unispace,
@@ -510,7 +517,6 @@ class TFTDisplay(object):
 
         gc.collect()
         await asyncio.sleep(1)
-
 
     async def show_network_screen(self):
         pass
@@ -536,12 +542,173 @@ class TFTDisplay(object):
         pass
 
 
+class PSensorPMS7003:
+    #  Original https://github.com/pkucmus/micropython-pms7003/blob/master/pms7003.py
+    #  Modified for asyncronous StreamWriter read and write 16.01.2020 by Divergentti / Jari Hiltunen
+
+    START_BYTE_1 = 0x42
+    START_BYTE_2 = 0x4d
+    PMS_FRAME_LENGTH = 0
+    PMS_PM1_0 = 1
+    PMS_PM2_5 = 2
+    PMS_PM10_0 = 3
+    PMS_PM1_0_ATM = 4
+    PMS_PM2_5_ATM = 5
+    PMS_PM10_0_ATM = 6
+    PMS_PCNT_0_3 = 7
+    PMS_PCNT_0_5 = 8
+    PMS_PCNT_1_0 = 9
+    PMS_PCNT_2_5 = 10
+    PMS_PCNT_5_0 = 11
+    PMS_PCNT_10_0 = 12
+    PMS_VERSION = 13
+    PMS_ERROR = 14
+    PMS_CHECKSUM = 15
+
+    #  Default UART0, rx=3, tx=1, you may change these in the call
+    def __init__(self, rxpin=3, txpin=1, uart=0):
+        self.sensor = UART(uart)
+        self.sensor.init(baudrate=9600, bits=8, parity=None, stop=1, rx=rxpin, tx=txpin)
+        self.sensor_activation_time = utime.time()
+        self.value_read_time = utime.time()
+        self.pms_dictionary = None
+
+    def __repr__(self):
+        return "PSensorPMS7003({})".format(self.sensor)
+
+    async def writer(self, data):
+        port = asyncio.StreamWriter(self.sensor, {})
+        port.write(data)
+        await port.drain()    # Transmit begins
+        await asyncio.sleep(2)   # Minimum read frequency 2 seconds
+
+    async def reader(self, chars):
+        port = asyncio.StreamReader(self.sensor)
+        data = await port.readexactly(chars)
+        return data
+
+    @staticmethod
+    def _assert_byte(byte, expected):
+        if byte is None or len(byte) < 1 or ord(byte) != expected:
+            return False
+        return True
+
+    @staticmethod
+    def _format_bytearray(buffer):
+        return "".join("0x{:02x} ".format(i) for i in buffer)
+
+    def _send_cmd(self, request, response):
+
+        nr_of_written_bytes = self.sensor.write(request)
+
+        if nr_of_written_bytes != len(request):
+            print('Failed to write to UART')
+
+        if response:
+            utime.sleep(2)
+            buffer = self.sensor.read(len(response))
+
+            if buffer != response:
+                print('Wrong UART response, expecting: {}, getting: {}'
+                      .format(PSensorPMS7003._format_bytearray(response), PSensorPMS7003._format_bytearray(buffer)))
+
+    async def read_pms_loop(self):
+        while True:
+            print("Reading dictionary, wait...")
+            try:
+                # await self.writer(self.READ_COMMAND)
+                self.pms_dictionary = self.read()
+            except TypeError as e:
+                print("Error %s", e)
+                pass
+            await asyncio.sleep(1)
+
+    def read(self):
+
+        while True:
+
+            first_byte = self.sensor.read(1)
+            if not self._assert_byte(first_byte, PSensorPMS7003.START_BYTE_1):
+                continue
+
+            second_byte = self.sensor.read(1)
+            if not self._assert_byte(second_byte, PSensorPMS7003.START_BYTE_2):
+                continue
+
+            # we are reading 30 bytes left
+            read_bytes = self.sensor.read(30)
+            if len(read_bytes) < 30:
+                continue
+
+            data = struct.unpack('!HHHHHHHHHHHHHBBH', read_bytes)
+
+            checksum = PSensorPMS7003.START_BYTE_1 + PSensorPMS7003.START_BYTE_2
+            checksum += sum(read_bytes[:28])
+
+            if checksum != data[PSensorPMS7003.PMS_CHECKSUM]:
+                continue
+
+            return {
+                'FRAME_LENGTH': data[PSensorPMS7003.PMS_FRAME_LENGTH],
+                'PM1_0': data[PSensorPMS7003.PMS_PM1_0],
+                'PM2_5': data[PSensorPMS7003.PMS_PM2_5],
+                'PM10_0': data[PSensorPMS7003.PMS_PM10_0],
+                'PM1_0_ATM': data[PSensorPMS7003.PMS_PM1_0_ATM],
+                'PM2_5_ATM': data[PSensorPMS7003.PMS_PM2_5_ATM],
+                'PM10_0_ATM': data[PSensorPMS7003.PMS_PM10_0_ATM],
+                'PCNT_0_3': data[PSensorPMS7003.PMS_PCNT_0_3],
+                'PCNT_0_5': data[PSensorPMS7003.PMS_PCNT_0_5],
+                'PCNT_1_0': data[PSensorPMS7003.PMS_PCNT_1_0],
+                'PCNT_2_5': data[PSensorPMS7003.PMS_PCNT_2_5],
+                'PCNT_5_0': data[PSensorPMS7003.PMS_PCNT_5_0],
+                'PCNT_10_0': data[PSensorPMS7003.PMS_PCNT_10_0],
+                'VERSION': data[PSensorPMS7003.PMS_VERSION],
+                'ERROR': data[PSensorPMS7003.PMS_ERROR],
+                'CHECKSUM': data[PSensorPMS7003.PMS_CHECKSUM],
+            }
+
+
+class AirQuality(object):
+
+    def __init__(self, pmssensor):
+        self.aqinndex = None
+        self.pms = pmssensor
+
+    async def update_airqualiy_loop(self):
+        while True:
+            self.aqinndex = AQI.aqi(self.pms.pms_dictionary['PM2_5_ATM'], self.pms.pms_dictionary['PM10_0_ATM'])
+            await asyncio.sleep(1)
+
+
+async def show_what_i_do():
+    MQTTClient.DEBUG = False
+    # esp.osdebug(all)
+    # esp.osdebug(0)  # to UART0
+    while True:
+        # print("PMS dictionary: %s" % pms.pms_dictionary)
+        print("Air quality index: %s " % airquality.aqinndex)
+        print("CO2: %s" % co2sensor.co2_value)
+        print("Average: %s" % co2sensor.co2_average)
+        print("-------")
+        await asyncio.sleep(1)
+
+
+
+# If previous boot reason was not softboot, let's do that (for WiFi)
+# if reset_cause() != 2:
+#    print("Softboot in 5s")
+#    utime.sleep(5)
+#    reset()
+
+
 # Kick in some speed, max 240000000, normal 160000000, min with WiFi 80000000
 freq(240000000)
 
-
 # Sensor and controller objects
 co2sensor = CO2.MHZ19bCO2(CO2_SENSOR_RX_PIN, CO2_SENSOR_TX_PIN, CO2_SENSOR_UART)
+pms = PSensorPMS7003(uart=PARTICLE_SENSOR_UART, rxpin=PARTICLE_SENSOR_RX, txpin=PARTICLE_SENSOR_TX)
+airquality = AirQuality(pms)
+
 touchscreenspi = SPI(TOUCHSCREEN_SPI)  # HSPI
 # Keep touchscreen baudrate low! If it is too high, you will get wrong values! Do not exceed 2MHz or go below 1MHz
 # Might be related to S/NR of the cabling and connectors
@@ -556,7 +723,6 @@ wifinet = ConnectWiFi(display)
 
 
 async def main():
-
     """ try:
         await client.connect()
     except OSError as ex:
@@ -566,6 +732,8 @@ async def main():
     # Create loops here!
     loop = asyncio.get_event_loop()
     loop.create_task(co2sensor.read_co2_loop())
+    loop.create_task(pms.read_pms_loop())
+    loop.create_task(airquality.update_airqualiy_loop())
     loop.create_task(wifinet.collect_carbage_and_update_status_loop())
     loop.create_task(show_what_i_do())
 
@@ -579,8 +747,12 @@ async def main():
         display.row_by_row_text("Network down, running setup", 'yellow')
         await display.show_network_setup_screen()
 
+    # loop.run_forever()
+
     while True:
 
         await asyncio.sleep(1)
 
-asyncio.run(main())
+
+if __name__ == "__main__":
+    asyncio.run(main())
