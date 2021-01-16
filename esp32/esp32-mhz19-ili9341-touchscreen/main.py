@@ -25,7 +25,8 @@ Libraries:
 13.01.2020: Jari Hiltunen
 14.01.2020: Network part shall be ok if parameters.py used and communicates with the display.
 15.01.2020: Added some welcome stuff and fixed SPI buss speed so that touchscreen and keyboard works ok.
-16.01.2020: Added PMS7004 particle sensor reading. Dictionary is passed to the simple air quality calculation
+16.01.2020: Added PMS7003 particle sensor asynchronous reading. 
+            Sensor returns a dictionary, which is passed to the simple air quality calculation
 
 This code is in its very beginning steps!
 
@@ -544,7 +545,7 @@ class TFTDisplay(object):
 
 class PSensorPMS7003:
     #  Original https://github.com/pkucmus/micropython-pms7003/blob/master/pms7003.py
-    #  Modified for asyncronous StreamWriter read and write 16.01.2020 by Divergentti / Jari Hiltunen
+    #  Modified for asyncronous StreamWriter read 16.01.2020 by Divergentti / Jari Hiltunen
 
     START_BYTE_1 = 0x42
     START_BYTE_2 = 0x4d
@@ -697,6 +698,7 @@ async def main():
     # asyncio.create_task(mqtt_up_loop()) """
     # Create loops here!
     loop = asyncio.get_event_loop()
+    # TODO: For some unknown reason UART1 do not start if console port is not connected (investigating)
     loop.create_task(co2sensor.read_co2_loop())
     loop.create_task(pms.read_async_loop())
     loop.create_task(airquality.update_airqualiy_loop())
