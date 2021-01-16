@@ -55,6 +55,9 @@ class MHZ19bCO2:
         self.MEASURING_RANGE_0_5000PPM = bytearray(b'\xFF\x01\x99\x00\x00\x00\x13\x88\xCB')
         self.MEASURING_RANGE_0_10000PPM = bytearray(b'\xFF\x01\x99\x00\x00\x00\x27\x10\x2F')
 
+    def __repr__(self):
+        return "MHZ19b({})".format(self.sensor)
+
     async def writer(self, data):
         port = asyncio.StreamWriter(self.sensor, {})
         port.write(data)
@@ -71,10 +74,10 @@ class MHZ19bCO2:
             if (utime.time() - self.sensor_activation_time) < self.preheat_time:
                 #  By the datasheet, preheat shall be 3 minutes
                 print("Preheating ... wait")
-                await asyncio.sleep(1)
+                await asyncio.sleep(self.read_interval)
             elif (utime.time() - self.value_read_time) > self.read_interval:
                 #  Read values in 2 min frequency
-                print("Reading value, wait...")
+                print("Reading CO2 value, wait...")
                 try:
                     await self.writer(self.READ_COMMAND)
                     readbuffer = bytearray(await self.reader(9))
