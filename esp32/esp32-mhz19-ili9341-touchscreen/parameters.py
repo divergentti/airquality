@@ -11,12 +11,13 @@ CLIENT_ID = "ESP32-CO2-PARTICLE"
 DHCP_NAME = "ESP32-CO2-PARTICLE"
 TOPIC_ERRORS = 'virheet/koti/esp32'
 NTPSERVER = 'pool.ntp.org'
+#  Do not use UART0 (pins 3, 4) if you need REPL!
+CO2_SENSOR_UART = 1
 CO2_SENSOR_TX_PIN = 17
 CO2_SENSOR_RX_PIN = 16
-CO2_SENSOR_UART = 1
-PARTICLE_SENSOR_UART = 0
-PARTICLE_SENSOR_TX = 1
-PARTICLE_SENSOR_RX = 3
+PARTICLE_SENSOR_UART = 2
+PARTICLE_SENSOR_TX = 32
+PARTICLE_SENSOR_RX = 33
 # https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/spi_master.html
 TFT_SPI = 1  # HSPI = ID1
 TFT_DC_PIN = 4
