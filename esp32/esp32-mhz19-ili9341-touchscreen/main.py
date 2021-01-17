@@ -28,7 +28,7 @@ Libraries:
 16.01.2020: Added PMS7003 particle sensor asynchronous reading.
             Sensor returns a dictionary, which is passed to the simple air quality calculation
 17.01.2020: Added status update loop which turn screen red if over limits and formatted display.
-            Fixed UART2 (CO2 sensor) related problem after power on boot by deleting sensor object and recreating it 
+            Fixed UART2 (CO2 sensor) related problem after power on boot by deleting sensor object and recreating it
             again. No idea why UART2 does not work after power on boot but works after soft etc boots.
             Fixed also MHZ19 class reading so that values can not be more than sensor range.
 
@@ -645,8 +645,8 @@ class AirQuality(object):
 
 class MHZ19bCO2:
 
-    # Default UART2, rx=16, tx=17, you may change these in the call
-    def __init__(self, uart=2, rxpin=16, txpin=17):
+    # Default UART2, rx=16, tx=17, you shall change these in the call
+    def __init__(self, uart=2, rxpin=25, txpin=27):
         self.sensor = UART(uart)
         self.sensor.init(baudrate=9600, bits=8, parity=None, stop=1, rx=rxpin, tx=txpin)
         self.zeropoint_calibrated = False
@@ -799,7 +799,7 @@ pms = PSensorPMS7003(uart=PARTICLE_SENSOR_UART, rxpin=PARTICLE_SENSOR_RX, txpin=
 airquality = AirQuality(pms)
 # CO2 sensor
 co2sensor = MHZ19bCO2(uart=CO2_SENSOR_UART, rxpin=CO2_SENSOR_RX_PIN, txpin=CO2_SENSOR_TX_PIN)
-#  For some reason power on boot do not start UART, let's delete object and redo it again
+#  If you use UART2, you have to delete object and re-create it after power on boot!
 if reset_cause() == 1:
     del co2sensor
     utime.sleep(5)
@@ -828,7 +828,6 @@ async def main():
     # asyncio.create_task(mqtt_up_loop()) """
     # Create loops here!
     loop = asyncio.get_event_loop()
-    # TODO: For some unknown reason UART1 do not start if console port is not connected (investigating)
     loop.create_task(pms.read_async_loop())
     loop.create_task(co2sensor.read_co2_loop())
     loop.create_task(airquality.update_airqualiy_loop())
