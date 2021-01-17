@@ -25,8 +25,9 @@ Libraries:
 13.01.2020: Jari Hiltunen
 14.01.2020: Network part shall be ok if parameters.py used and communicates with the display.
 15.01.2020: Added some welcome stuff and fixed SPI buss speed so that touchscreen and keyboard works ok.
-16.01.2020: Added PMS7003 particle sensor asynchronous reading. 
+16.01.2020: Added PMS7003 particle sensor asynchronous reading.
             Sensor returns a dictionary, which is passed to the simple air quality calculation
+17.01.2020: Added status update loop which turn screen red if over limits and formatted display.
 
 This code is in its very beginning steps!
 
@@ -49,7 +50,6 @@ from AQI import AQI
 # For testing
 # import esp
 
-
 try:
     f = open('parameters.py', "r")
     from parameters import SSID1, SSID2, PASSWORD1, PASSWORD2, MQTT_SERVER, MQTT_PASSWORD, MQTT_USER, MQTT_PORT, \
@@ -60,8 +60,6 @@ try:
 except OSError:  # open failed
     print("parameter.py-file missing! Can not continue!")
     raise
-
-#  Globals
 
 
 def restart_and_reconnect():
@@ -269,16 +267,6 @@ class ConnectWiFi(object):
                 utime.sleep(10)
                 reset()
 
-    async def collect_carbage_and_update_status_loop(self):
-        #  Update interval 10 seconds
-        while True:
-            if self.network_connected is True:
-                self.use_ssid = network.WLAN(network.STA_IF).config('essid')
-                self.ip_address = network.WLAN(network.STA_IF).ifconfig()[0]
-                self.wifi_strenth = network.WLAN(network.STA_IF).status('rssi')
-                gc.collect()
-                await asyncio.sleep(10)
-
     def mqtt_init(self):
         config['server'] = MQTT_SERVER
         config['ssid'] = self.use_ssid
@@ -363,9 +351,10 @@ class TFTDisplay(object):
         self.screen_timeout = False
         self.keyboard = None
         self.keyboard_show = False
+        # If all ok is False, change background color etc
         self.all_ok = True
 
-        # test
+        # test normally controlled from network setup screen
         self.connect_to_wifi = True
 
         # loop = asyncio.get_event_loop()
@@ -491,11 +480,22 @@ class TFTDisplay(object):
 
     async def show_welcome_screen(self):
         welcome1 = "AirQuality v.0.01"
-        welcome2 = "Date %s" % resolve_date()[0]
-        welcome3 = "Time is %s" % resolve_date()[1]
-        welcome4 = "CO2 %s / average %s" % (co2sensor.co2_value, co2sensor.co2_average)
-        welcome5 = "Air Quality %s" % airquality.aqinndex
+        welcome2 = "%s %s" % resolve_date()
+        # To avoid nonetype errors
+        if co2sensor.co2_value is None:
+            welcome3 = "CO2: waiting..."
+        elif co2sensor.co2_average is None:
+            welcome3 = "CO2 average counting..."
+        else:
+            welcome3 = "CO2: %s ppm (%s)" % ("{:.1f}".format(co2sensor.co2_value),
+                                             "{:.1f}".format(co2sensor.co2_average))
+        if airquality.aqinndex is None:
+            welcome4 = "Waiting values..."
+        else:
+            welcome4 = "Air Quality Index %s" % ("{:.1f}".format(airquality.aqinndex))
+        welcome5 = "Temp: Rh: Pressure: "
         welcome6 = "Memory free %s" % gc.mem_free()
+
         self.fontheight = self.unispace.height
         self.rowheight = self.fontheight + 2  # 2 pixel space between rows
         self.display.draw_text(12, 25, welcome1, self.unispace, color565(self.color_r, self.color_g, self.color_b),
@@ -516,8 +516,7 @@ class TFTDisplay(object):
                                color565(self.color_r, self.color_g, self.color_b),
                                color565(self.color_r_b, self.color_g_b, self.color_b_b))
 
-        gc.collect()
-        await asyncio.sleep(1)
+        await asyncio.sleep(10)
 
     async def show_network_screen(self):
         pass
@@ -570,12 +569,7 @@ class PSensorPMS7003:
     def __init__(self, rxpin=32, txpin=33, uart=1):
         self.sensor = UART(uart)
         self.sensor.init(baudrate=9600, bits=8, parity=None, stop=1, rx=rxpin, tx=txpin)
-        self.sensor_activation_time = utime.time()
-        self.value_read_time = None
         self.pms_dictionary = None
-
-    def __repr__(self):
-        return "PSensorPMS7003({})".format(self.sensor)
 
     async def reader(self, chars):
         port = asyncio.StreamReader(self.sensor)
@@ -613,8 +607,6 @@ class PSensorPMS7003:
             if checksum != data[PSensorPMS7003.PMS_CHECKSUM]:
                 continue
 
-            self.value_read_time = utime.time()
-
             self.pms_dictionary = {
                 'FRAME_LENGTH': data[PSensorPMS7003.PMS_FRAME_LENGTH],
                 'PM1_0': data[PSensorPMS7003.PMS_PM1_0],
@@ -643,8 +635,34 @@ class AirQuality(object):
     async def update_airqualiy_loop(self):
         while True:
             if self.pms.pms_dictionary is not None:
-                self.aqinndex = AQI.aqi(self.pms.pms_dictionary['PM2_5_ATM'], self.pms.pms_dictionary['PM10_0_ATM'])
-            await asyncio.sleep(1)
+                if (self.pms.pms_dictionary['PM2_5_ATM'] != 0) and (self.pms.pms_dictionary['PM10_0_ATM'] != 0):
+                    self.aqinndex = (AQI.aqi(self.pms.pms_dictionary['PM2_5_ATM'], self.pms.pms_dictionary['PM10_0_ATM']))
+            # TODO: control update intervals
+            await asyncio.sleep(5)
+
+
+async def collect_carbage_and_update_status_loop():
+    #  This sub will update status flags of objects and collect carbage
+    while True:
+        # For network
+        if wifinet.network_connected is True:
+            wifinet.use_ssid = network.WLAN(network.STA_IF).config('essid')
+            wifinet.ip_address = network.WLAN(network.STA_IF).ifconfig()[0]
+            wifinet.wifi_strenth = network.WLAN(network.STA_IF).status('rssi')
+
+        # For display
+        if co2sensor.co2_average >= 1200:
+            display.all_ok = False
+        elif co2sensor.co2_average < 1200:
+            display.all_ok = True
+        elif airquality.aqinndex >= 50:
+            display.all_ok = False
+        elif airquality.aqinndex < 50:
+            display.all_ok = True
+        else:
+            display.all_ok = True
+        gc.collect()
+        await asyncio.sleep(10)
 
 
 async def show_what_i_do():
@@ -657,7 +675,7 @@ async def show_what_i_do():
         print("CO2: %s" % co2sensor.co2_value)
         print("Average: %s" % co2sensor.co2_average)
         print("-------")
-        await asyncio.sleep(1)
+        await asyncio.sleep(2)
 
 
 
@@ -669,7 +687,7 @@ async def show_what_i_do():
 
 
 # Kick in some speed, max 240000000, normal 160000000, min with WiFi 80000000
-freq(240000000)
+# freq(240000000)
 
 # Sensor and controller objects
 co2sensor = CO2.MHZ19bCO2(CO2_SENSOR_RX_PIN, CO2_SENSOR_TX_PIN, CO2_SENSOR_UART)
@@ -702,7 +720,7 @@ async def main():
     loop.create_task(co2sensor.read_co2_loop())
     loop.create_task(pms.read_async_loop())
     loop.create_task(airquality.update_airqualiy_loop())
-    loop.create_task(wifinet.collect_carbage_and_update_status_loop())
+    loop.create_task(collect_carbage_and_update_status_loop())
     loop.create_task(show_what_i_do())
 
     if (display.connect_to_wifi is True) and (wifinet.network_connected is False):
