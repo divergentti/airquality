@@ -9,7 +9,7 @@ from the display either with predefined SSID name and password, or password for 
 
 Libraries:
 1. MQTT_AS https://github.com/peterhinch/micropython-mqtt/blob/master/mqtt_as/mqtt_as.py
-2. MHZ19B.py in this blob
+2. MHZ19B.py in this blob. Note: UART2 can not be muxed to any pins as UART0 and UART1
    - RX pin goes to sensor TX ping and vice versa
    - Use 5V
 3. ILI9341 display, touchscreen, fonts and keyboard https://github.com/rdagger/micropython-ili9341
@@ -28,6 +28,9 @@ Libraries:
 16.01.2020: Added PMS7003 particle sensor asynchronous reading.
             Sensor returns a dictionary, which is passed to the simple air quality calculation
 17.01.2020: Added status update loop which turn screen red if over limits and formatted display.
+            Fixed UART2 (CO2 sensor) related problem after power on boot by deleting sensor object and recreating it 
+            again. No idea why UART2 does not work after power on boot but works after soft etc boots.
+            Fixed also MHZ19 class reading so that values can not be more than sensor range.
 
 This code is in its very beginning steps!
 
@@ -40,7 +43,6 @@ from MQTT_AS import MQTTClient, config
 import network
 import ntptime
 import webrepl
-import MHZ19B as CO2
 from XPT2046 import Touch
 from ILI9341 import Display, color565
 from XGLCD_FONT import XglcdFont
@@ -641,6 +643,114 @@ class AirQuality(object):
             await asyncio.sleep(5)
 
 
+class MHZ19bCO2:
+
+    # Default UART2, rx=16, tx=17, you may change these in the call
+    def __init__(self, uart=2, rxpin=16, txpin=17):
+        self.sensor = UART(uart)
+        self.sensor.init(baudrate=9600, bits=8, parity=None, stop=1, rx=rxpin, tx=txpin)
+        self.zeropoint_calibrated = False
+        self.co2_value = None
+        self.co2_averages = []
+        self.co2_average_values = 20
+        self.co2_average = None
+        self.sensor_activation_time = utime.time()
+        self.value_read_time = utime.time()
+        self.measuring_range = '0_5000'  # default
+        self.preheat_time = 10   # shall be 180 or more
+        self.read_interval = 10  # shall be 120 or more
+        self.READ_COMMAND = bytearray(b'\xFF\x01\x86\x00\x00\x00\x00\x00\x79')
+        self.CALIBRATE_ZEROPOINT = bytearray(b'\xFF\x01\x87\x00\x00\x00\x00\x00\x78')
+        self.CALIBRATE_SPAN = bytearray(b'\xFF\x01\x88\x07\xD0\x00\x00\x00\xA0')
+        self.SELF_CALIBRATION_ON = bytearray(b'\xFF\x01\x79\xA0\x00\x00\x00\x00\xE6')
+        self.SELF_CALIBRATION_OFF = bytearray(b'\xFF\x01\x79\x00\x00\x00\x00\x00\x86')
+        self.MEASURING_RANGE_0_2000PPM = bytearray(b'\xFF\x01\x99\x00\x00\x00\x07\xD0\x8F')
+        self.MEASURING_RANGE_0_5000PPM = bytearray(b'\xFF\x01\x99\x00\x00\x00\x13\x88\xCB')
+        self.MEASURING_RANGE_0_10000PPM = bytearray(b'\xFF\x01\x99\x00\x00\x00\x27\x10\x2F')
+
+    async def writer(self, data):
+        port = asyncio.StreamWriter(self.sensor, {})
+        port.write(data)
+        await port.drain()    # Transmit begins
+        await asyncio.sleep(2)   # Minimum read frequency 2 seconds
+
+    async def reader(self, chars):
+        port = asyncio.StreamReader(self.sensor)
+        data = await port.readexactly(chars)
+        return data
+
+    async def read_co2_loop(self):
+        while True:
+            if (utime.time() - self.sensor_activation_time) < self.preheat_time:
+                #  By the datasheet, preheat shall be 3 minutes
+                await asyncio.sleep(self.read_interval)
+            elif (utime.time() - self.value_read_time) > self.read_interval:
+                try:
+                    await self.writer(self.READ_COMMAND)
+                    readbuffer = bytearray(await self.reader(9))
+                    if readbuffer[0] == 0xff and self._calculate_crc(readbuffer) == readbuffer[8]:
+                        self.co2_value = self._data_to_co2_level(readbuffer)
+                        if self.co2_value > int(self.measuring_range):
+                            self.co2_value = None
+                        else:
+                            self.calculate_average(self.co2_value)
+                            self.value_read_time = utime.time()
+                except TypeError:
+                    pass
+            await asyncio.sleep(self.read_interval)
+
+    def calculate_average(self, co2):
+        if co2 is not None:
+            self.co2_averages.append(co2)
+            self.co2_average = (sum(self.co2_averages) / len(self.co2_averages))
+            #  read 20 values, delete oldest
+        if len(self.co2_averages) == self.co2_average_values:
+            self.co2_averages.pop(0)
+
+    def calibrate_zeropoint(self):
+        if utime.time() - self.sensor_activation_time > (20 * 60):
+            self.writer(self.CALIBRATE_ZEROPOINT)
+            self.zeropoint_calibrated = True
+        else:
+            print("Prior calibration sensor must be heated at least 20 minutes!")
+
+    def calibrate_span(self):
+        if self.zeropoint_calibrated is True:
+            self.writer(self.CALIBRATE_SPAN)
+        else:
+            print("Zeropoint must be calibrated first!")
+
+    def selfcalibration_on(self):
+        self.writer(self.SELF_CALIBRATION_ON)
+
+    def selfcalibration_off(self):
+        self.writer(self.SELF_CALIBRATION_OFF)
+
+    def measuring_range_0_2000_ppm(self):
+        self.writer(self.MEASURING_RANGE_0_2000PPM)
+        self.measuring_range = '0_2000'
+
+    def measuring_range_0_5000_ppm(self):
+        self.writer(self.MEASURING_RANGE_0_5000PPM)
+        self.measuring_range = '0_5000'
+
+    def measuring_range_0_10000_ppm(self):
+        self.writer(self.MEASURING_RANGE_0_10000PPM)
+        self.measuring_range = '0_10000'
+
+    @staticmethod
+    # Borrowed from https://github.com/dr-mod/co2-monitoring-station/blob/master/mhz19b.py
+    def _calculate_crc(readbuffer):
+        if len(readbuffer) != 9:
+            return None
+        crc = sum(readbuffer[1:8])
+        return (~(crc & 0xff) & 0xff) + 1
+
+    @staticmethod
+    def _data_to_co2_level(data):
+        return data[2] << 8 | data[3]
+
+
 async def collect_carbage_and_update_status_loop():
     #  This sub will update status flags of objects and collect carbage
     while True:
@@ -651,14 +761,16 @@ async def collect_carbage_and_update_status_loop():
             wifinet.wifi_strenth = network.WLAN(network.STA_IF).status('rssi')
 
         # For display
-        if co2sensor.co2_average >= 1200:
-            display.all_ok = False
-        elif co2sensor.co2_average < 1200:
-            display.all_ok = True
-        elif airquality.aqinndex >= 50:
-            display.all_ok = False
-        elif airquality.aqinndex < 50:
-            display.all_ok = True
+        if co2sensor.co2_average is not None:
+            if co2sensor.co2_average >= 1200:
+                display.all_ok = False
+            elif co2sensor.co2_average < 1200:
+                display.all_ok = True
+        if airquality.aqinndex is not None:
+            if airquality.aqinndex >= 50:
+                display.all_ok = False
+            elif airquality.aqinndex < 50:
+                display.all_ok = True
         else:
             display.all_ok = True
         gc.collect()
@@ -678,22 +790,22 @@ async def show_what_i_do():
         await asyncio.sleep(2)
 
 
-
-# If previous boot reason was not softboot, let's do that (for WiFi)
-# if reset_cause() != 2:
-#    print("Softboot in 5s")
-#    utime.sleep(5)
-#    reset()
-
-
 # Kick in some speed, max 240000000, normal 160000000, min with WiFi 80000000
 # freq(240000000)
 
 # Sensor and controller objects
-co2sensor = CO2.MHZ19bCO2(CO2_SENSOR_RX_PIN, CO2_SENSOR_TX_PIN, CO2_SENSOR_UART)
+# Particle sensor
 pms = PSensorPMS7003(uart=PARTICLE_SENSOR_UART, rxpin=PARTICLE_SENSOR_RX, txpin=PARTICLE_SENSOR_TX)
 airquality = AirQuality(pms)
+# CO2 sensor
+co2sensor = MHZ19bCO2(uart=CO2_SENSOR_UART, rxpin=CO2_SENSOR_RX_PIN, txpin=CO2_SENSOR_TX_PIN)
+#  For some reason power on boot do not start UART, let's delete object and redo it again
+if reset_cause() == 1:
+    del co2sensor
+    utime.sleep(5)
+    co2sensor = MHZ19bCO2(uart=CO2_SENSOR_UART, rxpin=CO2_SENSOR_RX_PIN, txpin=CO2_SENSOR_TX_PIN)
 
+# Display and touchscreen
 touchscreenspi = SPI(TOUCHSCREEN_SPI)  # HSPI
 # Keep touchscreen baudrate low! If it is too high, you will get wrong values! Do not exceed 2MHz or go below 1MHz
 # Might be related to S/NR of the cabling and connectors
@@ -717,8 +829,8 @@ async def main():
     # Create loops here!
     loop = asyncio.get_event_loop()
     # TODO: For some unknown reason UART1 do not start if console port is not connected (investigating)
-    loop.create_task(co2sensor.read_co2_loop())
     loop.create_task(pms.read_async_loop())
+    loop.create_task(co2sensor.read_co2_loop())
     loop.create_task(airquality.update_airqualiy_loop())
     loop.create_task(collect_carbage_and_update_status_loop())
     loop.create_task(show_what_i_do())
