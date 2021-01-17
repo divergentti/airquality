@@ -11,10 +11,10 @@ CLIENT_ID = "ESP32-CO2-PARTICLE"
 DHCP_NAME = "ESP32-CO2-PARTICLE"
 TOPIC_ERRORS = 'virheet/koti/esp32'
 NTPSERVER = 'pool.ntp.org'
-#  Do not use UART0 (pins 3, 4) if you need REPL!
+#  Do not use UART0 (pins 3, 4) if you need REPL! Avoid UART2 16 & 17 pins too, they may cause spiram issues.
 CO2_SENSOR_UART = 2
-CO2_SENSOR_TX_PIN = 17  # goes to RX
-CO2_SENSOR_RX_PIN = 16  # goes to TX
+CO2_SENSOR_TX_PIN = 27
+CO2_SENSOR_RX_PIN = 25
 PARTICLE_SENSOR_UART = 1
 PARTICLE_SENSOR_TX = 32
 PARTICLE_SENSOR_RX = 33
