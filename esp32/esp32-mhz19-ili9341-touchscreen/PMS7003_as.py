@@ -1,3 +1,11 @@
+"""
+  19.01.2020: Jari Hiltunen
+
+  Original https://github.com/pkucmus/micropython-pms7003/blob/master/pms7003.py
+  Modified for asyncronous StreamReader  16.01.2020 by Divergentti / Jari Hiltunen
+
+"""
+
 from machine import UART
 import struct
 import utime
@@ -5,8 +13,6 @@ import uasyncio as asyncio
 
 
 class PSensorPMS7003:
-    #  Original https://github.com/pkucmus/micropython-pms7003/blob/master/pms7003.py
-    #  Modified for asyncronous StreamWriter read 16.01.2020 by Divergentti / Jari Hiltunen
 
     START_BYTE_1 = 0x42
     START_BYTE_2 = 0x4d
@@ -29,8 +35,7 @@ class PSensorPMS7003:
 
     #  Default UART1, rx=32, tx=33. Don't use UART0 if you want to use REPL!
     def __init__(self, rxpin=32, txpin=33, uart=1):
-        self.sensor = UART(uart)
-        self.sensor.init(baudrate=9600, bits=8, parity=None, stop=1, rx=rxpin, tx=txpin)
+        self.sensor = UART(uart, baudrate=9600, bits=8, parity=None, stop=1, rx=rxpin, tx=txpin)
         self.pms_dictionary = None
         self.startup_time = utime.time()   # TODO: implement 30 s wait prior to reading
 
