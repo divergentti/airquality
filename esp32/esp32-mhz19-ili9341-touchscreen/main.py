@@ -361,9 +361,8 @@ class TFTDisplay(object):
         self.screen_update_interval = 5
         #  To avoid duplicate screens
         self.setup_screen_active = False
-        # test normally controlled from network setup screen
+        # TODO test normally controlled from network setup screen
         self.connect_to_wifi = True
-
 
     def try_to_connect(self, ssid, pwd):
         """ Return WiFi connection status.
@@ -391,6 +390,7 @@ class TFTDisplay(object):
         self.keyboard_show = True
 
         """Process touchscreen press events. Disable debug if you do not want to see green circle on the keyboard """
+        # TODO: Capture characters and enter
         if self.keyboard.handle_keypress(x, y, debug=False) is True:
             self.keyboard.locked = True
             pwd = self.keyboard.kb_text
@@ -430,18 +430,18 @@ class TFTDisplay(object):
             self.rownumber = 1
 
     async def run_display_loop(self):
-        #  Loop is introduced within object class!
+        # TODO: Initial welcome screen?
 
         # await self.show_welcome_screen()
 
-        # continually refresh the active screen
+        # NOTE: Loop is started in the main()
 
         while True:
-            rows = await self.show_time_co2_temp_screen(self)
+            rows = await self.show_time_co2_temp_screen()
             await self.show_screen(rows)
-            rows = await self.show_particle_screen(self)
+            rows = await self.show_particle_screen()
             await self.show_screen(rows)
-            rows = await self.show_status_monitor_screen(self)
+            rows = await self.show_status_monitor_screen()
             await self.show_screen(rows)
 
     async def show_screen(self, rows):
@@ -467,25 +467,25 @@ class TFTDisplay(object):
             self.rowheight = self.fontheight + 2  # 2 pixel space between rows
             self.display.draw_text(self.leftindent_pixels, 25, row1, self.active_font,
                                    color565(self.color_r, self.color_g, self.color_b),
-                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+                                   color565(self.color_r_b, self.color_g_b, self.color_b_b))
             self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight, row2, self.active_font,
-                               color565(self.color_r, self.color_g, self.color_b),
-                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+                                   color565(self.color_r, self.color_g, self.color_b),
+                                   color565(self.color_r_b, self.color_g_b, self.color_b_b))
             self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight * 2, row3, self.active_font,
-                               color565(self.color_r, self.color_g, self.color_b),
-                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+                                   color565(self.color_r, self.color_g, self.color_b),
+                                   color565(self.color_r_b, self.color_g_b, self.color_b_b))
             self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight * 3, row4, self.active_font,
-                               color565(self.color_r, self.color_g, self.color_b),
-                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+                                   color565(self.color_r, self.color_g, self.color_b),
+                                   color565(self.color_r_b, self.color_g_b, self.color_b_b))
             self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight * 4, row5, self.active_font,
-                               color565(self.color_r, self.color_g, self.color_b),
-                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+                                   color565(self.color_r, self.color_g, self.color_b),
+                                   color565(self.color_r_b, self.color_g_b, self.color_b_b))
             self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight * 5, row6, self.active_font,
-                               color565(self.color_r, self.color_g, self.color_b),
-                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+                                   color565(self.color_r, self.color_g, self.color_b),
+                                   color565(self.color_r_b, self.color_g_b, self.color_b_b))
             self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight * 6, row7, self.active_font,
-                               color565(self.color_r, self.color_g, self.color_b),
-                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+                                   color565(self.color_r, self.color_g, self.color_b),
+                                   color565(self.color_r_b, self.color_g_b, self.color_b_b))
             await asyncio.sleep(self.screen_update_interval)
 
     async def draw_all_ok_background(self):
@@ -507,7 +507,7 @@ class TFTDisplay(object):
         self.color_r_b, self.color_g_b, self.color_b_b = self.colours['orange']
 
     @staticmethod
-    async def show_time_co2_temp_screen(self):
+    async def show_time_co2_temp_screen():
         row1 = "%s %s" % resolve_date()
         row2 = " "
         # To avoid nonetype errors
@@ -521,43 +521,42 @@ class TFTDisplay(object):
         if airquality.aqinndex is None:
             row4 = "AirQuality not ready"
         else:
-            row4 = "Air Quality Index %s" % ("{:.1f}".format(airquality.aqinndex))
-        row5 = "Temp: Rh: Pressure: "
-        row6 = " "
-        row7 = "Memory free %s" % gc.mem_free()
+            row4 = "Air Quality Index: %s" % ("{:.1f}".format(airquality.aqinndex))
+        row5 = "Temp: "
+        row6 = "Rh: "
+        row7 = "Pressure: %s" % gc.mem_free()
         rows = row1, row2, row3, row4, row5, row6, row7
         return rows
 
     @staticmethod
-    async def show_particle_screen(self):
+    async def show_particle_screen():
         if pms.pms_dictionary is not None:
             row1 = "1. Concentration ug/m3:"
-            if (pms.pms_dictionary['PM1_0'] is not None) and (pms.pms_dictionary['PM1_0_ATM'] is not None):
-                row2 = " PM1.0: %s / ATM: %s" % (pms.pms_dictionary['PM1_0'], pms.pms_dictionary['PM1_0_ATM'])
+            if (pms.pms_dictionary['PM1_0'] is not None) and (pms.pms_dictionary['PM1_0_ATM'] is not None) and \
+                    (pms.pms_dictionary['PM2_5'] is not None) and (pms.pms_dictionary['PM2_5_ATM'] is not None):
+                row2 = " PM1:%s (%s) PM2.5:%s (%s)" % (pms.pms_dictionary['PM1_0'],
+                                                       pms.pms_dictionary['PM1_0_ATM'],
+                                                       pms.pms_dictionary['PM2_5'],
+                                                       pms.pms_dictionary['PM2_5_ATM'])
             else:
                 row2 = " Waiting"
-            if (pms.pms_dictionary['PM2_5'] is not None) and (pms.pms_dictionary['PM2_5_ATM'] is not None):
-                row3 = " PM2.5: %s / ATM: %s" % (pms.pms_dictionary['PM2_5'], pms.pms_dictionary['PM2_5_ATM'])
-            else:
-                row3 = " Waiting"
             if (pms.pms_dictionary['PM10_0'] is not None) and (pms.pms_dictionary['PM10_0_ATM'] is not None):
-                row4 = " PM10: %s / ATM: %s" % (pms.pms_dictionary['PM10_0'], pms.pms_dictionary['PM10_0_ATM'])
+                row3 = " PM10: %s (ATM: %s)" % (pms.pms_dictionary['PM10_0'], pms.pms_dictionary['PM10_0_ATM'])
             else:
-                row4 = "Waiting"
-            row5 = "2. Particle count/1L/um:"
-            if (pms.pms_dictionary['PCNT_0_3'] is not None) and (pms.pms_dictionary['PCNT_0_5'] is not None) and \
-                    (pms.pms_dictionary['PCNT_1_0'] is not None):
-                row6 = " %s<0.3 & %s<0.5 & %s<1.0" % (pms.pms_dictionary['PCNT_0_3'], pms.pms_dictionary['PCNT_0_5'],
-                                                     pms.pms_dictionary['PCNT_1_0'])
+                row3 = "Waiting"
+            row4 = "2. Particle count/1L/um:"
+            if (pms.pms_dictionary['PCNT_0_3'] is not None) and (pms.pms_dictionary['PCNT_0_5'] is not None):
+                row5 = " %s < 0.3 & %s <0.5 " % (pms.pms_dictionary['PCNT_0_3'], pms.pms_dictionary['PCNT_0_5'])
             else:
-                row6 = " Waiting"
-            if (pms.pms_dictionary['PCNT_2_5'] is not None) and (pms.pms_dictionary['PCNT_5_0'] is not None) \
-                    and (pms.pms_dictionary['PCNT_10_0'] is not None):
-                row7 = " %s<2.5 & %s<5.0 & %s<10.0" % (pms.pms_dictionary['PCNT_2_5'], pms.pms_dictionary['PCNT_5_0'],
-                                                      pms.pms_dictionary['PCNT_10_0'])
+                row5 = " Waiting"
+            if (pms.pms_dictionary['PCNT_1_0'] is not None) and (pms.pms_dictionary['PCNT_2_5'] is not None):
+                row6 = " %s < 1.0 & %s < 2.5" % (pms.pms_dictionary['PCNT_1_0'], pms.pms_dictionary['PCNT_2_5'])
+            else:
+                row6 = "Waiting"
+            if (pms.pms_dictionary['PCNT_5_0'] is not None) and (pms.pms_dictionary['PCNT_10_0'] is not None):
+                row7 = " %s < 5.0 & %s < 10.0" % (pms.pms_dictionary['PCNT_5_0'], pms.pms_dictionary['PCNT_10_0'])
             else:
                 row7 = " Waiting"
-
             rows = row1, row2, row3, row4, row5, row6, row7
             return rows
         else:
@@ -570,7 +569,7 @@ class TFTDisplay(object):
         pass
 
     @staticmethod
-    async def show_status_monitor_screen(self):
+    async def show_status_monitor_screen():
         row1 = "Memory free: %s" % gc.mem_free()
         row2 = "CPU ticks: %s" % utime.ticks_cpu()
         row3 = "WiFi Strenth: %s" % wifinet.wifi_strenth
@@ -580,7 +579,6 @@ class TFTDisplay(object):
         row7 = "Have a great day! "
         rows = row1, row2, row3, row4, row5, row6, row7
         return rows
-
 
     async def show_display_sleep_screen(self):
         pass
@@ -689,7 +687,6 @@ async def main():
     loop.create_task(collect_carbage_and_update_status_loop())  # updates alarm flags on display too
     loop.create_task(show_what_i_do())    # output REPL
     loop.create_task(display.run_display_loop())   # start display show
-
 
     if (display.connect_to_wifi is True) and (wifinet.network_connected is False):
         await wifinet.connect_to_network()
