@@ -3,6 +3,8 @@
 
   Original https://github.com/pkucmus/micropython-pms7003/blob/master/pms7003.py
   Modified for asyncronous StreamReader  16.01.2020 by Divergentti / Jari Hiltunen
+  
+  Add loop into your code loop.create_task(objectname.read_async_loop())
 
 """
 
