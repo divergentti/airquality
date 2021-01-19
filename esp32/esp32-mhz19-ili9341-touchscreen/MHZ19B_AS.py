@@ -1,3 +1,20 @@
+"""
+
+19.01.2020: Jari Hiltunen
+
+Asynchronous MH-Z19 Class.
+
+Add loop loop.create_task(objectname.read_co2_loop()) in your script!
+
+If you use UART2, you  may need to delete object and re-create it after power on boot!
+
+if reset_cause() == 1:
+    del co2sensor
+    utime.sleep(5)
+    co2sensor = CO2.MHZ19bCO2(uart=CO2_SENSOR_UART, rxpin=CO2_SENSOR_RX_PIN, txpin=CO2_SENSOR_TX_PIN)
+
+"""
+
 import utime
 from machine import UART
 import uasyncio as asyncio
@@ -7,8 +24,7 @@ class MHZ19bCO2:
 
     # Default UART2, rx=16, tx=17, you shall change these in the call
     def __init__(self, uart=2, rxpin=25, txpin=27):
-        self.sensor = UART(uart)
-        self.sensor.init(baudrate=9600, bits=8, parity=None, stop=1, rx=rxpin, tx=txpin)
+        self.sensor = UART(uart, baudrate=9600, bits=8, parity=None, stop=1, rx=rxpin, tx=txpin)
         self.zeropoint_calibrated = False
         self.co2_value = None
         self.co2_averages = []
