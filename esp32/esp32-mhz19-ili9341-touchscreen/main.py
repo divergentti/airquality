@@ -402,7 +402,7 @@ class TFTDisplay(object):
     def first_press(self, x, y):
         """ If touchscreen is pressed, draw first setup screen """
         gc.collect()
-        self.display.clear()
+        # self.display.clear()
         self.keyboard_show = False
         self.setup_screen_active = True
         self.draw_setup_screen()
@@ -487,18 +487,18 @@ class TFTDisplay(object):
         box = 0
         if (x > self.textbox1_x) and (x < self.textbox2_x):
             # left part
-            box = 13    # box 1 and 3
+            box = 13    # box 1 or 3
         elif x > self.textbox2_x:
             # right part
-            box = 24    # box 2 and 4
+            box = 24    # box 2 or 4
         if box == 13:
             if y > self.textbox3_h:
-                print("Display chosen")
+                print("IOT chosen")
             else:
                 print("Network chosen")
-        elif box == 24:
+        if box == 24:
             if y > self.textbox4_h:
-                print("IOT chosen")
+                print("Debug chosen")
             else:
                 print("Display chosen")
 
@@ -786,7 +786,7 @@ if reset_cause() == 1:
 touchscreenspi = SPI(TOUCHSCREEN_SPI)  # HSPI
 # Keep touchscreen baudrate low! If it is too high, you will get wrong values! Do not exceed 2MHz or go below 1MHz
 # Might be related to S/NR of the cabling and connectors
-touchscreenspi.init(baudrate=1200000, sck=Pin(TFT_TOUCH_SCLK_PIN), mosi=Pin(TFT_TOUCH_MOSI_PIN),
+touchscreenspi.init(baudrate=1100000, sck=Pin(TFT_TOUCH_SCLK_PIN), mosi=Pin(TFT_TOUCH_MOSI_PIN),
                     miso=Pin(TFT_TOUCH_MISO_PIN))
 displayspi = SPI(TFT_SPI)  # VSPI - baudrate 40 - 90 MHz appears to be working, screen update still slow
 displayspi.init(baudrate=40000000, sck=Pin(TFT_CLK_PIN), mosi=Pin(TFT_MOSI_PIN), miso=Pin(TFT_MISO_PIN))
