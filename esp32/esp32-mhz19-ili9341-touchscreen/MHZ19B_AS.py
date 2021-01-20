@@ -13,6 +13,8 @@ if reset_cause() == 1:
     utime.sleep(5)
     co2sensor = CO2.MHZ19bCO2(uart=CO2_SENSOR_UART, rxpin=CO2_SENSOR_RX_PIN, txpin=CO2_SENSOR_TX_PIN)
 
+20.01.2020: Added crc_errors and range_error counters. CRC error increase if bytearray is wrong, range error
+            increase if read value is over sensor's set range.
 """
 
 import utime
@@ -32,6 +34,8 @@ class MHZ19bCO2:
         self.co2_average = None
         self.sensor_activation_time = utime.time()
         self.value_read_time = utime.time()
+        self.crc_errors = 0
+        self.range_errors = 0
         self.measuring_range = '0_5000'  # default
         self.preheat_time = 10   # shall be 180 or more, during testing you can use these values
         self.read_interval = 10  # shall be 120 or more
@@ -68,9 +72,12 @@ class MHZ19bCO2:
                         self.co2_value = self._data_to_co2_level(readbuffer)
                         if self.co2_value > int(self.measuring_range):
                             self.co2_value = None
+                            self.range_errors += 1
                         else:
                             self.calculate_average(self.co2_value)
                             self.value_read_time = utime.time()
+                    else:
+                        self.crc_errors += 1
                 except TypeError:
                     pass
             await asyncio.sleep(self.read_interval)
