@@ -797,6 +797,7 @@ wifinet = ConnectWiFi(display)
 
 
 async def main():
+    gc.collect()
     """ try:
         await client.connect()
     except OSError as ex:
@@ -811,6 +812,7 @@ async def main():
     loop.create_task(collect_carbage_and_update_status_loop())  # updates alarm flags on display too
     # loop.create_task(show_what_i_do())    # output REPL
     loop.create_task(display.run_display_loop())   # start display show
+    gc.collect()
 
     if (display.connect_to_wifi is True) and (wifinet.network_connected is False):
         await wifinet.connect_to_network()
