@@ -1,6 +1,7 @@
 # Source https://github.com/rdagger/micropython-ili9341/blob/master/xpt2046.py
 """XPT2046 Touch module."""
 from time import sleep
+from micropython import const
 
 
 class Touch(object):
