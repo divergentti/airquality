@@ -344,9 +344,8 @@ class TFTDisplay(object):
 
         # Touchscreen
         self.xpt = Touch(spi=touchspi, cs=Pin(TFT_TOUCH_CS_PIN), int_pin=Pin(TFT_TOUCH_IRQ_PIN),
-                         width=240, height=320, x_min=100, x_max=1962, y_min=100, y_max=1900,
-                         int_handler=self.touchscreen_press)
-
+                         width=240, height=320, x_min=100, x_max=1962, y_min=100, y_max=1900)
+        self.xpt.int_handler = self.first_press
         self.rownumber = 1
         self.rowheight = 10
         self.fontheight = 10
@@ -354,6 +353,26 @@ class TFTDisplay(object):
         self.maxrows = self.display.height / self.fontheight
         self.max_x = self.display.width - 1
         self.max_y = self.display.height - 1
+        self.textbox1_x = 0
+        self.textbox1_y = 0
+        self.textbox1_w = int(self.max_x / 2)
+        self.textbox1_h = int(self.max_y / 2)
+
+        self.textbox2_x = int(self.max_x / 2)
+        self.textbox2_y = 0
+        self.textbox2_w = int(self.max_x / 2)
+        self.textbox2_h = int(self.max_y / 2)
+
+        self.textbox3_x = 0
+        self.textbox3_y = int(self.max_y / 2)
+        self.textbox3_w = int(self.max_x / 2)
+        self.textbox3_h = int(self.max_y / 2)
+
+        self.textbox4_x = int(self.max_x / 2)
+        self.textbox4_y = int(self.max_y / 2)
+        self.textbox4_w = int(self.max_x / 2)
+        self.textbox4_h = int(self.max_y / 2)
+
         self.leftindent_pixels = 12
         self.diag_count = 0
         self.screen_timeout = False
@@ -380,74 +399,59 @@ class TFTDisplay(object):
 
         return status
 
-    def touchscreen_press(self, x, y):
+    def first_press(self, x, y):
         """ If touchscreen is pressed, draw first setup screen """
-        print(x, y)
+        gc.collect()
+        self.display.clear()
         self.keyboard_show = False
         self.setup_screen_active = True
         self.draw_setup_screen()
-
-        # TODO: Show first user input screen
-
-        # TODO: create selection list of available SSID's
-        ssids = wifinet.ssid_list
-
-        # TODO: Ask password from user. Set up Keyboard
 
     def draw_setup_screen(self):
         """ Split screen to 4 divisions, network setup, iot setup, display setup and debug setup  """
         self.active_font = self.unispace
         self.fontheight = self.active_font.height
         self.fontwidth = self.active_font.width
-        textbox1_x = 0
-        textbox1_y = 0
-        textbox1_w = int(self.max_x/2)
-        textbox1_h = int(self.max_y/2)
-
-        textbox2_x = int(self.max_x/2)
-        textbox2_y = 0
-        textbox2_w = int(self.max_x/2)
-        textbox2_h = int(self.max_y/2)
-
-        textbox3_x = 0
-        textbox3_y = int(self.max_y/2)
-        textbox3_w = int(self.max_x/2)
-        textbox3_h = int(self.max_y/2)
-
-        textbox4_x = int(self.max_x/ 2)
-        textbox4_y = int(self.max_y/2)
-        textbox4_w = int(self.max_x/2)
-        textbox4_h = int(self.max_y/2)
 
         textbox1_1 = "Network"
-        textbox1_1_mid_x = textbox1_x + (int(textbox1_w / 2) - (int((len(textbox1_1) * self.fontwidth)/2)))
-        textbox1_1_mid_y = textbox1_y + int(textbox1_h/2)
+        textbox1_1_mid_x = self.textbox1_x + (int(self.textbox1_w / 2) - (int((len(textbox1_1) * self.fontwidth)/2)))
+        textbox1_1_mid_y = self.textbox1_y + int(self.textbox1_h/2)
         textbox2_1 = "IOT"
-        textbox2_1_mid_x = textbox2_x + (int(textbox2_w / 2) - (int((len(textbox2_1) * self.fontwidth)/2)))
-        textbox2_1_mid_y = textbox2_y + int(textbox2_h/2)
+        textbox2_1_mid_x = self.textbox2_x + (int(self.textbox2_w / 2) - (int((len(textbox2_1) * self.fontwidth)/2)))
+        textbox2_1_mid_y = self.textbox2_y + int(self.textbox2_h/2)
         textbox3_1 = "Display"
-        textbox3_1_mid_x = textbox3_x + (int(textbox3_w / 2) - (int((len(textbox3_1) * self.fontwidth)/2)))
-        textbox3_1_mid_y = textbox3_y + int(textbox3_h/2)
+        textbox3_1_mid_x = self.textbox3_x + (int(self.textbox3_w / 2) - (int((len(textbox3_1) * self.fontwidth)/2)))
+        textbox3_1_mid_y = self.textbox3_y + int(self.textbox3_h/2)
         textbox4_1 = "Debug"
-        textbox4_1_mid_x = textbox4_x + (int(textbox4_w / 2) - (int((len(textbox4_1) * self.fontwidth)/2)))
-        textbox4_1_mid_y = textbox4_y + int(textbox4_h/2)
-
+        textbox4_1_mid_x = self.textbox4_x + (int(self.textbox4_w / 2) - (int((len(textbox4_1) * self.fontwidth)/2)))
+        textbox4_1_mid_y = self.textbox4_y + int(self.textbox4_h/2)
 
         # For network setup
         self.color_r, self.color_g, self.color_b = self.colours['blue']  # TODO: perhaps tuple to name?
-        self.display.fill_rectangle(textbox1_x, textbox1_y, textbox1_w, textbox1_h,
+        self.display.fill_rectangle(self.textbox1_x, self.textbox1_y, self.textbox1_w, self.textbox1_h,
                                     color565(self.color_r, self.color_g, self.color_b))
         self.color_r, self.color_g, self.color_b = self.colours['white']
         self.color_r_b, self.color_g_b, self.color_b_b = self.colours['blue']
         self.display.draw_text(textbox1_1_mid_x, textbox1_1_mid_y, textbox1_1, self.active_font,
-                              color565(self.color_r, self.color_g, self.color_b),
-                              color565(self.color_r_b, self.color_g_b, self.color_b_b))
+                               color565(self.color_r, self.color_g, self.color_b),
+                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+        # Is network up or down?
+        if wifinet.network_connected is True:
+            self.color_r, self.color_g, self.color_b = self.colours['green']
+            self.display.draw_text(self.textbox1_x + 2, self.textbox1_y + 2, "Network up", self.fixedfont,
+                                   color565(self.color_r, self.color_g, self.color_b),
+                                   color565(self.color_r_b, self.color_g_b, self.color_b_b))
+        else:
+            self.color_r, self.color_g, self.color_b = self.colours['purple']
+            self.display.draw_text(self.textbox1_x + 2, self.textbox1_y + 2, "Network down", self.fixedfont,
+                                   color565(self.color_r, self.color_g, self.color_b),
+                                   color565(self.color_r_b, self.color_g_b, self.color_b_b))
 
         # For IOT Setup
         self.color_r, self.color_g, self.color_b = self.colours['yellow']
-        self.display.fill_rectangle(textbox2_x, textbox2_y, textbox2_w, textbox2_h,
+        self.display.fill_rectangle(self.textbox2_x, self.textbox2_y, self.textbox2_w, self.textbox2_h,
                                     color565(self.color_r, self.color_g, self.color_b))
-        self.color_r, self.color_g, self.color_b = self.colours['white']
+        self.color_r, self.color_g, self.color_b = self.colours['green']
         self.color_r_b, self.color_g_b, self.color_b_b = self.colours['yellow']
         self.display.draw_text(textbox2_1_mid_x, textbox2_1_mid_y , textbox2_1, self.active_font,
                                color565(self.color_r, self.color_g, self.color_b),
@@ -455,25 +459,48 @@ class TFTDisplay(object):
 
         # For Display setup
         self.color_r, self.color_g, self.color_b = self.colours['light_green']
-        self.display.fill_rectangle(textbox3_x, textbox3_y, textbox3_w, textbox3_h,
+        self.display.fill_rectangle(self.textbox3_x, self.textbox3_y, self.textbox3_w, self.textbox3_h,
                                     color565(self.color_r, self.color_g, self.color_b))
         self.color_r, self.color_g, self.color_b = self.colours['white']
         self.color_r_b, self.color_g_b, self.color_b_b = self.colours['light_green']
-        self.display.draw_text(textbox3_1_mid_x, textbox3_1_mid_y, textbox3_1,
-                               self.active_font,
+        self.display.draw_text(textbox3_1_mid_x, textbox3_1_mid_y, textbox3_1, self.active_font,
                                color565(self.color_r, self.color_g, self.color_b),
                                color565(self.color_r_b, self.color_g_b, self.color_b_b))
 
         # For Debug setup
         self.color_r, self.color_g, self.color_b = self.colours['light_yellow']
-        self.display.fill_rectangle(textbox4_x, textbox4_y, textbox4_w, textbox4_h,
+        self.display.fill_rectangle(self.textbox4_x, self.textbox4_y, self.textbox4_w, self.textbox4_h,
                                     color565(self.color_r, self.color_g, self.color_b))
-        self.color_r, self.color_g, self.color_b = self.colours['white']
+        self.color_r, self.color_g, self.color_b = self.colours['red']
         self.color_r_b, self.color_g_b, self.color_b_b = self.colours['light_yellow']
-        self.display.draw_text(textbox4_1_mid_x, textbox4_1_mid_y, textbox4_1,
-                               self.active_font,
+        self.display.draw_text(textbox4_1_mid_x, textbox4_1_mid_y, textbox4_1, self.active_font,
                                color565(self.color_r, self.color_g, self.color_b),
                                color565(self.color_r_b, self.color_g_b, self.color_b_b))
+
+        # Replace init handel to check what user choose
+        self.xpt.int_handler = self.select_setup_box
+
+    def select_setup_box(self, x, y):
+        # Init handler for setup screen
+        print("Print select setup %s %s" %(x,y))
+        # Check which box was pressed
+        box = 0
+        if (x > self.textbox1_x) and (x < self.textbox2_x):
+            # left part
+            box = 13    # box 1 and 3
+        elif x > self.textbox2_x:
+            # right part
+            box = 24    # box 2 and 4
+        if box == 13:
+            if y > self.textbox3_h:
+                print("Display chosen")
+            else:
+                print("Network chosen")
+        elif box == 24:
+            if y > self.textbox4_h:
+                print("IOT chosen")
+            else:
+                print("Display chosen")
 
 
     def activate_keyboard(self, x, y):
@@ -529,13 +556,15 @@ class TFTDisplay(object):
         # NOTE: Loop is started in the main()
 
         while True:
-            if (self.keyboard_show is False) and (self.setup_screen_active is False):
+            if self.setup_screen_active is False:
                 rows = await self.show_time_co2_temp_screen()
                 await self.show_screen(rows)
                 rows = await self.show_particle_screen()
                 await self.show_screen(rows)
                 rows = await self.show_status_monitor_screen()
                 await self.show_screen(rows)
+            else:
+                await asyncio.sleep(1)
 
     async def show_screen(self, rows):
         row1 = "Airquality 0.02"
