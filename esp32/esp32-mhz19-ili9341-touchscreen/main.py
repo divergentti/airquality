@@ -36,6 +36,7 @@ Libraries:
             again. No idea why UART2 does not work after power on boot but works after soft etc boots.
             Fixed also MHZ19 class reading so that values can not be more than sensor range.
 19.01.2020: Added three first screens and logic for colour change if values over limit.
+20.01.2020: Added text boxes to the display for setting up network, IOT, display and Debug
 
 This code is in its very beginning steps!
 
@@ -344,12 +345,15 @@ class TFTDisplay(object):
         # Touchscreen
         self.xpt = Touch(spi=touchspi, cs=Pin(TFT_TOUCH_CS_PIN), int_pin=Pin(TFT_TOUCH_IRQ_PIN),
                          width=240, height=320, x_min=100, x_max=1962, y_min=100, y_max=1900,
-                         int_handler=self.activate_keyboard)
+                         int_handler=self.touchscreen_press)
 
         self.rownumber = 1
         self.rowheight = 10
         self.fontheight = 10
+        self.fontwidth = 10
         self.maxrows = self.display.height / self.fontheight
+        self.max_x = self.display.width - 1
+        self.max_y = self.display.height - 1
         self.leftindent_pixels = 12
         self.diag_count = 0
         self.screen_timeout = False
@@ -377,12 +381,100 @@ class TFTDisplay(object):
         return status
 
     def touchscreen_press(self, x, y):
+        """ If touchscreen is pressed, draw first setup screen """
+        print(x, y)
+        self.keyboard_show = False
+        self.setup_screen_active = True
+        self.draw_setup_screen()
+
         # TODO: Show first user input screen
 
         # TODO: create selection list of available SSID's
         ssids = wifinet.ssid_list
 
         # TODO: Ask password from user. Set up Keyboard
+
+    def draw_setup_screen(self):
+        """ Split screen to 4 divisions, network setup, iot setup, display setup and debug setup  """
+        self.active_font = self.unispace
+        self.fontheight = self.active_font.height
+        self.fontwidth = self.active_font.width
+        textbox1_x = 0
+        textbox1_y = 0
+        textbox1_w = int(self.max_x/2)
+        textbox1_h = int(self.max_y/2)
+
+        textbox2_x = int(self.max_x/2)
+        textbox2_y = 0
+        textbox2_w = int(self.max_x/2)
+        textbox2_h = int(self.max_y/2)
+
+        textbox3_x = 0
+        textbox3_y = int(self.max_y/2)
+        textbox3_w = int(self.max_x/2)
+        textbox3_h = int(self.max_y/2)
+
+        textbox4_x = int(self.max_x/ 2)
+        textbox4_y = int(self.max_y/2)
+        textbox4_w = int(self.max_x/2)
+        textbox4_h = int(self.max_y/2)
+
+        textbox1_1 = "Network"
+        textbox1_1_mid_x = textbox1_x + (int(textbox1_w / 2) - (int((len(textbox1_1) * self.fontwidth)/2)))
+        textbox1_1_mid_y = textbox1_y + int(textbox1_h/2)
+        textbox2_1 = "IOT"
+        textbox2_1_mid_x = textbox2_x + (int(textbox2_w / 2) - (int((len(textbox2_1) * self.fontwidth)/2)))
+        textbox2_1_mid_y = textbox2_y + int(textbox2_h/2)
+        textbox3_1 = "Display"
+        textbox3_1_mid_x = textbox3_x + (int(textbox3_w / 2) - (int((len(textbox3_1) * self.fontwidth)/2)))
+        textbox3_1_mid_y = textbox3_y + int(textbox3_h/2)
+        textbox4_1 = "Debug"
+        textbox4_1_mid_x = textbox4_x + (int(textbox4_w / 2) - (int((len(textbox4_1) * self.fontwidth)/2)))
+        textbox4_1_mid_y = textbox4_y + int(textbox4_h/2)
+
+
+        # For network setup
+        self.color_r, self.color_g, self.color_b = self.colours['blue']  # TODO: perhaps tuple to name?
+        self.display.fill_rectangle(textbox1_x, textbox1_y, textbox1_w, textbox1_h,
+                                    color565(self.color_r, self.color_g, self.color_b))
+        self.color_r, self.color_g, self.color_b = self.colours['white']
+        self.color_r_b, self.color_g_b, self.color_b_b = self.colours['blue']
+        self.display.draw_text(textbox1_1_mid_x, textbox1_1_mid_y, textbox1_1, self.active_font,
+                              color565(self.color_r, self.color_g, self.color_b),
+                              color565(self.color_r_b, self.color_g_b, self.color_b_b))
+
+        # For IOT Setup
+        self.color_r, self.color_g, self.color_b = self.colours['yellow']
+        self.display.fill_rectangle(textbox2_x, textbox2_y, textbox2_w, textbox2_h,
+                                    color565(self.color_r, self.color_g, self.color_b))
+        self.color_r, self.color_g, self.color_b = self.colours['white']
+        self.color_r_b, self.color_g_b, self.color_b_b = self.colours['yellow']
+        self.display.draw_text(textbox2_1_mid_x, textbox2_1_mid_y , textbox2_1, self.active_font,
+                               color565(self.color_r, self.color_g, self.color_b),
+                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+
+        # For Display setup
+        self.color_r, self.color_g, self.color_b = self.colours['light_green']
+        self.display.fill_rectangle(textbox3_x, textbox3_y, textbox3_w, textbox3_h,
+                                    color565(self.color_r, self.color_g, self.color_b))
+        self.color_r, self.color_g, self.color_b = self.colours['white']
+        self.color_r_b, self.color_g_b, self.color_b_b = self.colours['light_green']
+        self.display.draw_text(textbox3_1_mid_x, textbox3_1_mid_y, textbox3_1,
+                               self.active_font,
+                               color565(self.color_r, self.color_g, self.color_b),
+                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+
+        # For Debug setup
+        self.color_r, self.color_g, self.color_b = self.colours['light_yellow']
+        self.display.fill_rectangle(textbox4_x, textbox4_y, textbox4_w, textbox4_h,
+                                    color565(self.color_r, self.color_g, self.color_b))
+        self.color_r, self.color_g, self.color_b = self.colours['white']
+        self.color_r_b, self.color_g_b, self.color_b_b = self.colours['light_yellow']
+        self.display.draw_text(textbox4_1_mid_x, textbox4_1_mid_y, textbox4_1,
+                               self.active_font,
+                               color565(self.color_r, self.color_g, self.color_b),
+                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+
 
     def activate_keyboard(self, x, y):
         #  Setup keyboard
@@ -437,12 +529,13 @@ class TFTDisplay(object):
         # NOTE: Loop is started in the main()
 
         while True:
-            rows = await self.show_time_co2_temp_screen()
-            await self.show_screen(rows)
-            rows = await self.show_particle_screen()
-            await self.show_screen(rows)
-            rows = await self.show_status_monitor_screen()
-            await self.show_screen(rows)
+            if (self.keyboard_show is False) and (self.setup_screen_active is False):
+                rows = await self.show_time_co2_temp_screen()
+                await self.show_screen(rows)
+                rows = await self.show_particle_screen()
+                await self.show_screen(rows)
+                rows = await self.show_status_monitor_screen()
+                await self.show_screen(rows)
 
     async def show_screen(self, rows):
         row1 = "Airquality 0.02"
@@ -573,10 +666,11 @@ class TFTDisplay(object):
         row1 = "Memory free: %s" % gc.mem_free()
         row2 = "CPU ticks: %s" % utime.ticks_cpu()
         row3 = "WiFi Strenth: %s" % wifinet.wifi_strenth
-        row4 = " "
-        row5 = "PMS7003 version %s" % pms.pms_dictionary['VERSION']
-        row6 = " "
-        row7 = "Have a great day! "
+        row4 = "MHZ19B CRC errors: %s " % co2sensor.crc_errors
+        row5 = "MHZ19B Range errors: %s" % co2sensor.range_errors
+        row6 = "PMS7003 version %s" % pms.pms_dictionary['VERSION']
+        row7 = " "
+
         rows = row1, row2, row3, row4, row5, row6, row7
         return rows
 
@@ -644,7 +738,7 @@ async def show_what_i_do():
 
 
 # Kick in some speed, max 240000000, normal 160000000, min with WiFi 80000000
-# freq(240000000)
+freq(240000000)
 
 # Sensor and controller objects
 # Particle sensor
@@ -652,6 +746,7 @@ pms = PARTICLES.PSensorPMS7003(uart=PARTICLE_SENSOR_UART, rxpin=PARTICLE_SENSOR_
 airquality = AirQuality(pms)
 # CO2 sensor
 co2sensor = CO2.MHZ19bCO2(uart=CO2_SENSOR_UART, rxpin=CO2_SENSOR_RX_PIN, txpin=CO2_SENSOR_TX_PIN)
+
 #  If you use UART2, you have to delete object and re-create it after power on boot!
 if reset_cause() == 1:
     del co2sensor
@@ -664,7 +759,7 @@ touchscreenspi = SPI(TOUCHSCREEN_SPI)  # HSPI
 # Might be related to S/NR of the cabling and connectors
 touchscreenspi.init(baudrate=1200000, sck=Pin(TFT_TOUCH_SCLK_PIN), mosi=Pin(TFT_TOUCH_MOSI_PIN),
                     miso=Pin(TFT_TOUCH_MISO_PIN))
-displayspi = SPI(TFT_SPI)  # VSPI
+displayspi = SPI(TFT_SPI)  # VSPI - baudrate 40 - 90 MHz appears to be working, screen update still slow
 displayspi.init(baudrate=40000000, sck=Pin(TFT_CLK_PIN), mosi=Pin(TFT_MOSI_PIN), miso=Pin(TFT_MISO_PIN))
 
 # Initialize display object prior to wifinet-object!
@@ -685,18 +780,20 @@ async def main():
     loop.create_task(co2sensor.read_co2_loop())   # read sensor
     loop.create_task(airquality.update_airqualiy_loop())   # calculates continuously aqi
     loop.create_task(collect_carbage_and_update_status_loop())  # updates alarm flags on display too
-    loop.create_task(show_what_i_do())    # output REPL
+    # loop.create_task(show_what_i_do())    # output REPL
     loop.create_task(display.run_display_loop())   # start display show
 
     if (display.connect_to_wifi is True) and (wifinet.network_connected is False):
         await wifinet.connect_to_network()
 
-    """ if wifinet.network_connected is True:
+    """ 
+     if wifinet.network_connected is True:
         display.row_by_row_text("Network up, begin operations", 'blue')
         await display.run_display()
     else:
         display.row_by_row_text("Network down, running setup", 'yellow')
-        await display.show_network_setup_screen() """
+        await display.show_network_setup_screen() 
+    """
 
     # loop.run_forever()
 
