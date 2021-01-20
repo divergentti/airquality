@@ -1,9 +1,11 @@
 # Source https://github.com/rdagger/micropython-ili9341/blob/master/ili9341.py
+# Jari Hiltunen 20.01.2020 from micropython import const, is more or less cosmetic change
 
 """ILI9341 LCD/Touch module."""
 from time import sleep
 from math import cos, sin, pi, radians
 from sys import implementation
+from micropython import const
 import ustruct
 
 
