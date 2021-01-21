@@ -320,15 +320,6 @@ class TFTDisplay(object):
 
     def __init__(self, touchspi, dispspi):
 
-        self.colours = {'red': [255, 0, 0], 'green': [0, 255, 0], 'blue': [0, 0, 255], 'yellow': [255, 255, 0],
-                        'fuschia': [255, 0, 255], 'aqua': [0, 255, 255], 'maroon': [128, 0, 0],
-                        'darkgreen': [0, 128, 0], 'navy': [0, 0, 128], 'teal': [0, 128, 128], 'purple': [128, 0, 128],
-                        'olive': [128, 128, 0], 'orange': [255, 128, 0], 'deep_pink': [255, 0, 128],
-                        'charteuse': [128, 255, 0], 'spring_green': [0, 255, 128], 'indigo': [128, 0, 255],
-                        'dodger_blue': [0, 128, 255], 'cyan': [128, 255, 255], 'pink': [255, 128, 255],
-                        'light_yellow': [255, 255, 128], 'light_coral': [255, 128, 128], 'light_green': [128, 255, 128],
-                        'white': [255, 255, 255], 'black': [0, 0, 0]}
-
         # Display - some digitizers may be rotated 270 degrees!
         self.display = Display(spi=dispspi, cs=Pin(TFT_CS_PIN), dc=Pin(TFT_DC_PIN), rst=Pin(TFT_RST_PIN),
                                width=320, height=240, rotation=90)
@@ -338,9 +329,22 @@ class TFTDisplay(object):
         self.fixedfont = XglcdFont('fonts/FixedFont5x8.c', 5, 8, 32, 96)
         self.arcadepix = XglcdFont('fonts/ArcadePix9x11.c', 9, 11)
         self.active_font = self.unispace
-        self.color_r, self.color_g, self.color_b = self.colours['white']
-        # Background colours
-        self.color_r_b, self.color_g_b, self.color_b_b = self.colours['black']
+
+        self.colours = {'red': color565(255, 0, 0), 'green': color565(0, 255, 0), 'blue': color565(0, 0, 255),
+                        'yellow': color565(255, 255, 0), 'fuschia': color565(255, 0, 255),
+                        'aqua': color565(0, 255, 255), 'maroon': color565(128, 0, 0),
+                        'darkgreen': color565(0, 128, 0), 'navy': color565(0, 0, 128),
+                        'teal': color565(0, 128, 128), 'purple': color565(128, 0, 128),
+                        'olive': color565(128, 128, 0), 'orange': color565(255, 128, 0),
+                        'deep_pink': color565(255, 0, 128), 'charteuse': color565(128, 255, 0),
+                        'spring_green': color565(0, 255, 128), 'indigo': color565(128, 0, 255),
+                        'dodger_blue': color565(0, 128, 255), 'cyan': color565(128, 255, 255),
+                        'pink': color565(255, 128, 255), 'light_yellow': color565(255, 255, 128),
+                        'light_coral': color565(255, 128, 128), 'light_green': color565(128, 255, 128),
+                        'white': color565(255, 255, 255), 'black': color565(0, 0, 0)}
+
+        self.colour_fonts = 'white'
+        self.colour_background = 'light_green'
 
         # Touchscreen
         self.xpt = Touch(spi=touchspi, cs=Pin(TFT_TOUCH_CS_PIN), int_pin=Pin(TFT_TOUCH_IRQ_PIN),
@@ -427,62 +431,42 @@ class TFTDisplay(object):
         textbox4_1_mid_y = self.textbox4_y + int(self.textbox4_h/2)
 
         # For network setup
-        self.color_r, self.color_g, self.color_b = self.colours['blue']  # TODO: perhaps tuple to name?
         self.display.fill_rectangle(self.textbox1_x, self.textbox1_y, self.textbox1_w, self.textbox1_h,
-                                    color565(self.color_r, self.color_g, self.color_b))
-        self.color_r, self.color_g, self.color_b = self.colours['white']
-        self.color_r_b, self.color_g_b, self.color_b_b = self.colours['blue']
+                                    self.colours['blue'])
         self.display.draw_text(textbox1_1_mid_x, textbox1_1_mid_y, textbox1_1, self.active_font,
-                               color565(self.color_r, self.color_g, self.color_b),
-                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+                               self.colours['white'], self.colours['blue'])
         # Is network up or down?
         if wifinet.network_connected is True:
-            self.color_r, self.color_g, self.color_b = self.colours['green']
-            self.display.draw_text(self.textbox1_x + 2, self.textbox1_y + 2, "Network up", self.fixedfont,
-                                   color565(self.color_r, self.color_g, self.color_b),
-                                   color565(self.color_r_b, self.color_g_b, self.color_b_b))
+            self.display.draw_text(self.textbox1_x + 2, self.textbox1_y + 2, "Network up",
+                                   self.fixedfont, self.colours['green'])
         else:
-            self.color_r, self.color_g, self.color_b = self.colours['purple']
             self.display.draw_text(self.textbox1_x + 2, self.textbox1_y + 2, "Network down", self.fixedfont,
-                                   color565(self.color_r, self.color_g, self.color_b),
-                                   color565(self.color_r_b, self.color_g_b, self.color_b_b))
+                                   self.colours['purple'])
 
         # For IOT Setup
-        self.color_r, self.color_g, self.color_b = self.colours['yellow']
         self.display.fill_rectangle(self.textbox2_x, self.textbox2_y, self.textbox2_w, self.textbox2_h,
-                                    color565(self.color_r, self.color_g, self.color_b))
-        self.color_r, self.color_g, self.color_b = self.colours['green']
-        self.color_r_b, self.color_g_b, self.color_b_b = self.colours['yellow']
-        self.display.draw_text(textbox2_1_mid_x, textbox2_1_mid_y , textbox2_1, self.active_font,
-                               color565(self.color_r, self.color_g, self.color_b),
-                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+                                    self.colours['yellow'])
+        self.display.draw_text(textbox2_1_mid_x, textbox2_1_mid_y, textbox2_1, self.active_font,
+                               self.colours['green'], self.colours['yellow'])
 
         # For Display setup
-        self.color_r, self.color_g, self.color_b = self.colours['light_green']
         self.display.fill_rectangle(self.textbox3_x, self.textbox3_y, self.textbox3_w, self.textbox3_h,
-                                    color565(self.color_r, self.color_g, self.color_b))
-        self.color_r, self.color_g, self.color_b = self.colours['white']
-        self.color_r_b, self.color_g_b, self.color_b_b = self.colours['light_green']
+                                    self.colours['light_green'])
         self.display.draw_text(textbox3_1_mid_x, textbox3_1_mid_y, textbox3_1, self.active_font,
-                               color565(self.color_r, self.color_g, self.color_b),
-                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+                               self.colours['light_green'], self.colours['white'])
 
         # For Debug setup
-        self.color_r, self.color_g, self.color_b = self.colours['light_yellow']
         self.display.fill_rectangle(self.textbox4_x, self.textbox4_y, self.textbox4_w, self.textbox4_h,
-                                    color565(self.color_r, self.color_g, self.color_b))
-        self.color_r, self.color_g, self.color_b = self.colours['red']
-        self.color_r_b, self.color_g_b, self.color_b_b = self.colours['light_yellow']
+                                    self.colours['light_yellow'])
         self.display.draw_text(textbox4_1_mid_x, textbox4_1_mid_y, textbox4_1, self.active_font,
-                               color565(self.color_r, self.color_g, self.color_b),
-                               color565(self.color_r_b, self.color_g_b, self.color_b_b))
+                               self.colours['red'], self.colours['light_yellow'])
 
         # Replace init handel to check what user choose
         self.xpt.int_handler = self.select_setup_box
 
     def select_setup_box(self, x, y):
         # Init handler for setup screen
-        print("Print select setup %s %s" %(x,y))
+        print("Print select setup %s %s" % (x, y))
         # Check which box was pressed
         box = 0
         if (x > self.textbox1_x) and (x < self.textbox2_x):
@@ -501,7 +485,6 @@ class TFTDisplay(object):
                 print("Debug chosen")
             else:
                 print("Display chosen")
-
 
     def activate_keyboard(self, x, y):
         #  Setup keyboard
@@ -536,16 +519,15 @@ class TFTDisplay(object):
             self.keyboard_show = False
 
     def row_by_row_text(self, message, color):
-        self.color_r, self.color_g, self.color_b = self.colours[color]
         self.active_font = self.arcadepix
         self.fontheight = self.active_font.height
         self.rowheight = self.fontheight + 2  # 2 pixel space between rows
-        self.display.draw_text(5, self.rowheight * self.rownumber, message, self.arcadepix,
-                               color565(self.color_r, self.color_g, self.color_b))
+        self.display.draw_text(5, self.rowheight * self.rownumber, message, self.arcadepix, self.colours[color])
         self.rownumber += 1
         if self.rownumber >= self.maxrows:
             utime.sleep(self.screen_update_interval)
-            self.display.cleanup()
+            # TODO: scrolling screen!
+            # self.display.cleanup()
             self.rownumber = 1
 
     async def run_display_loop(self):
@@ -557,27 +539,36 @@ class TFTDisplay(object):
 
         while True:
             if self.setup_screen_active is False:
-                rows = await self.show_time_co2_temp_screen()
-                await self.show_screen(rows)
-                rows = await self.show_particle_screen()
-                await self.show_screen(rows)
-                rows = await self.show_status_monitor_screen()
-                await self.show_screen(rows)
+                rows, rowcolours = await self.show_time_co2_temp_screen()
+                await self.show_screen(rows, rowcolours)
+                rows, rowcolours = await self.show_particle_screen()
+                await self.show_screen(rows, rowcolours)
+                rows, rowcolours = await self.show_status_monitor_screen()
+                await self.show_screen(rows, rowcolours)
             else:
                 await asyncio.sleep(1)
 
-    async def show_screen(self, rows):
+    async def show_screen(self, rows, rowcolours):
         row1 = "Airquality 0.02"
+        row1_colour = 'white'
         row2 = "."
+        row2_colour = 'white'
         row3 = "Wait"
+        row3_colour = 'white'
         row4 = "For"
+        row4_colour = 'white'
         row5 = "Values"
+        row5_colour = 'white'
         row6 = "."
+        row6_colour = 'white'
         row7 = "Wait"
+        row7_colour = 'white'
 
         if rows is not None:
             if len(rows) == 7:
                 row1, row2, row3, row4, row5, row6, row7 = rows
+            if len(rowcolours) == 7:
+                row1_colour, row2_colour, row3_colour, row4_colour, row5_colour, row6_colour, row7_colour = rowcolours
 
         if (self.keyboard_show is False) and (self.setup_screen_active is False):
             if self.all_ok is True:
@@ -587,100 +578,111 @@ class TFTDisplay(object):
             self.active_font = self.unispace
             self.fontheight = self.active_font.height
             self.rowheight = self.fontheight + 2  # 2 pixel space between rows
-            self.display.draw_text(self.leftindent_pixels, 25, row1, self.active_font,
-                                   color565(self.color_r, self.color_g, self.color_b),
-                                   color565(self.color_r_b, self.color_g_b, self.color_b_b))
+            self.display.draw_text(self.leftindent_pixels, 25, row1, self.active_font, self.colours[row1_colour],
+                                   self.colours[self.colour_background])
             self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight, row2, self.active_font,
-                                   color565(self.color_r, self.color_g, self.color_b),
-                                   color565(self.color_r_b, self.color_g_b, self.color_b_b))
+                                   self.colours[row2_colour], self.colours[self.colour_background])
             self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight * 2, row3, self.active_font,
-                                   color565(self.color_r, self.color_g, self.color_b),
-                                   color565(self.color_r_b, self.color_g_b, self.color_b_b))
+                                   self.colours[row3_colour], self.colours[self.colour_background])
             self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight * 3, row4, self.active_font,
-                                   color565(self.color_r, self.color_g, self.color_b),
-                                   color565(self.color_r_b, self.color_g_b, self.color_b_b))
+                                   self.colours[row4_colour], self.colours[self.colour_background])
             self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight * 4, row5, self.active_font,
-                                   color565(self.color_r, self.color_g, self.color_b),
-                                   color565(self.color_r_b, self.color_g_b, self.color_b_b))
+                                   self.colours[row5_colour], self.colours[self.colour_background])
             self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight * 5, row6, self.active_font,
-                                   color565(self.color_r, self.color_g, self.color_b),
-                                   color565(self.color_r_b, self.color_g_b, self.color_b_b))
+                                   self.colours[row6_colour], self.colours[self.colour_background])
             self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight * 6, row7, self.active_font,
-                                   color565(self.color_r, self.color_g, self.color_b),
-                                   color565(self.color_r_b, self.color_g_b, self.color_b_b))
+                                   self.colours[row7_colour], self.colours[self.colour_background])
             await asyncio.sleep(self.screen_update_interval)
 
     async def draw_all_ok_background(self):
-        self.color_r, self.color_g, self.color_b = self.colours['yellow']
-        self.display.fill_rectangle(0, 0, self.display.width, self.display.height,
-                                    color565(self.color_r, self.color_g, self.color_b))
-        self.color_r, self.color_g, self.color_b = self.colours['light_green']
-        self.display.fill_rectangle(10, 10, 300, 220, color565(self.color_r, self.color_g, self.color_b))
-        self.color_r, self.color_g, self.color_b = self.colours['blue']
-        self.color_r_b, self.color_g_b, self.color_b_b = self.colours['light_green']
+        self.display.fill_rectangle(0, 0, self.display.width, self.display.height, self.colours['yellow'])
+        # TODO: replace excact values to display size values
+        self.display.fill_rectangle(10, 10, 300, 220, self.colours['light_green'])
+        self.colour_background = 'light_green'
 
     async def draw_error_background(self):
-        self.color_r, self.color_g, self.color_b = self.colours['red']
-        self.display.fill_rectangle(0, 0, self.display.width, self.display.height,
-                                    color565(self.color_r, self.color_g, self.color_b))
-        self.color_r, self.color_g, self.color_b = self.colours['orange']
-        self.display.fill_rectangle(10, 10, 300, 220, color565(self.color_r, self.color_g, self.color_b))
-        self.color_r, self.color_g, self.color_b = self.colours['white']
-        self.color_r_b, self.color_g_b, self.color_b_b = self.colours['orange']
+        self.display.fill_rectangle(0, 0, self.display.width, self.display.height, self.colours['red'])
+        self.display.fill_rectangle(10, 10, 300, 220, self.colours['orange'])
+        self.colour_background = 'orange'
 
     @staticmethod
     async def show_time_co2_temp_screen():
         row1 = "%s %s" % resolve_date()
+        row1_colour = 'white'
         row2 = " "
+        row2_colour = 'white'
         # To avoid nonetype errors
         if co2sensor.co2_value is None:
             row3 = "CO2: waiting..."
+            row3_colour = 'yellow'
         elif co2sensor.co2_average is None:
             row3 = "CO2 average counting..."
+            row3_colour = 'yellow'
         else:
             row3 = "CO2: %s ppm (%s)" % ("{:.1f}".format(co2sensor.co2_value),
                                          "{:.1f}".format(co2sensor.co2_average))
+            row3_colour = 'white'
         if airquality.aqinndex is None:
             row4 = "AirQuality not ready"
+            row4_colour = 'yellow'
         else:
             row4 = "Air Quality Index: %s" % ("{:.1f}".format(airquality.aqinndex))
+            row4_colour = 'white'
         row5 = "Temp: "
+        row5_colour = 'white'
         row6 = "Rh: "
+        row6_colour = 'white'
         row7 = "Pressure: %s" % gc.mem_free()
+        row7_colour = 'white'
         rows = row1, row2, row3, row4, row5, row6, row7
-        return rows
+        row_colours = row1_colour, row2_colour, row3_colour, row4_colour, row5_colour, row6_colour, row7_colour
+        return rows, row_colours
 
     @staticmethod
     async def show_particle_screen():
         if pms.pms_dictionary is not None:
             row1 = "1. Concentration ug/m3:"
+            row1_colour = 'white'
             if (pms.pms_dictionary['PM1_0'] is not None) and (pms.pms_dictionary['PM1_0_ATM'] is not None) and \
                     (pms.pms_dictionary['PM2_5'] is not None) and (pms.pms_dictionary['PM2_5_ATM'] is not None):
                 row2 = " PM1:%s (%s) PM2.5:%s (%s)" % (pms.pms_dictionary['PM1_0'],
                                                        pms.pms_dictionary['PM1_0_ATM'],
                                                        pms.pms_dictionary['PM2_5'],
                                                        pms.pms_dictionary['PM2_5_ATM'])
+                row2_colour = 'white'
             else:
                 row2 = " Waiting"
+                row2_colour = 'yellow'
             if (pms.pms_dictionary['PM10_0'] is not None) and (pms.pms_dictionary['PM10_0_ATM'] is not None):
                 row3 = " PM10: %s (ATM: %s)" % (pms.pms_dictionary['PM10_0'], pms.pms_dictionary['PM10_0_ATM'])
+                row3_colour = 'white'
+
             else:
                 row3 = "Waiting"
+                row3_colour = 'yellow'
             row4 = "2. Particle count/1L/um:"
+            row4_colour = 'white'
             if (pms.pms_dictionary['PCNT_0_3'] is not None) and (pms.pms_dictionary['PCNT_0_5'] is not None):
                 row5 = " %s < 0.3 & %s <0.5 " % (pms.pms_dictionary['PCNT_0_3'], pms.pms_dictionary['PCNT_0_5'])
+                row5_colour = 'white'
             else:
                 row5 = " Waiting"
+                row5_colour = 'yellow'
             if (pms.pms_dictionary['PCNT_1_0'] is not None) and (pms.pms_dictionary['PCNT_2_5'] is not None):
                 row6 = " %s < 1.0 & %s < 2.5" % (pms.pms_dictionary['PCNT_1_0'], pms.pms_dictionary['PCNT_2_5'])
+                row6_colour = 'white'
             else:
                 row6 = "Waiting"
+                row6_colour = 'yellow'
             if (pms.pms_dictionary['PCNT_5_0'] is not None) and (pms.pms_dictionary['PCNT_10_0'] is not None):
                 row7 = " %s < 5.0 & %s < 10.0" % (pms.pms_dictionary['PCNT_5_0'], pms.pms_dictionary['PCNT_10_0'])
+                row7_colour = 'white'
             else:
                 row7 = " Waiting"
+                row7_colour = 'yellow'
             rows = row1, row2, row3, row4, row5, row6, row7
-            return rows
+            row_colours = row1_colour, row2_colour, row3_colour, row4_colour, row5_colour, row6_colour, row7_colour
+            return rows, row_colours
         else:
             return None
 
@@ -693,15 +695,22 @@ class TFTDisplay(object):
     @staticmethod
     async def show_status_monitor_screen():
         row1 = "Memory free: %s" % gc.mem_free()
+        row1_colour = 'white'
         row2 = "CPU ticks: %s" % utime.ticks_cpu()
+        row2_colour = 'white'
         row3 = "WiFi Strenth: %s" % wifinet.wifi_strenth
+        row3_colour = 'white'
         row4 = "MHZ19B CRC errors: %s " % co2sensor.crc_errors
+        row4_colour = 'white'
         row5 = "MHZ19B Range errors: %s" % co2sensor.range_errors
+        row5_colour = 'white'
         row6 = "PMS7003 version %s" % pms.pms_dictionary['VERSION']
+        row6_colour = 'white'
         row7 = " "
-
+        row7_colour = 'white'
         rows = row1, row2, row3, row4, row5, row6, row7
-        return rows
+        row_colours = row1_colour, row2_colour, row3_colour, row4_colour, row5_colour, row6_colour, row7_colour
+        return rows, row_colours
 
     async def show_display_sleep_screen(self):
         pass
