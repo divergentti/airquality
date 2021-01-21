@@ -1,0 +1,20 @@
+{
+"SSID1" : "AP1",
+"PASSWORD1" : "PW1",
+"SSID2" : "AP2",
+"PASSWORD2" : "PW2",
+"MQTT_PORT" : "1883",
+"MQTT_USER" : "fillin",
+"MQTT_PASSWORD": "fillin",
+"MQTT_SERVER" : "fillin",
+"WEBREPL_PASSWORD" : "PWD",
+"CLIENT_ID" : "ESP32-CO2-PARTICLE",
+"DHCP_NAME" : "ESP32-CO2-PARTICLE",
+"TOPIC_ERRORS" : "virheet/koti/esp32",
+"NTPSERVER" : "pool.ntp.org",
+"START_WEBREPL" : 1,
+"START_NETWORK" : 1,
+"START_MQTT" : 0,
+"SCREEN_UPDATE_INTERVAL" : 5,
+"DEBUG_SCREEN_ACTIVE" : 1
+}
