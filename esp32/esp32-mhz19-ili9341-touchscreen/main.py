@@ -90,11 +90,12 @@ try:
         WEBREPL_PASSWORD = data['WEBREPL_PASSWORD']
         NTPSERVER = data['NTPSERVER']
         DHCP_NAME = data['DHCP_NAME']
-        START_WEBREPL = 0
-        START_NETWORK = 0
-        START_MQTT = 0
-        SCREEN_UPDATE_INTERVAL = 5
-        DEBUG_SCREEN_ACTIVE = 1
+        START_WEBREPL = data['START_WEBREPL']
+        START_NETWORK = data['START_NETWORK']
+        START_MQTT = data['START_MQTT']
+        SCREEN_UPDATE_INTERVAL = data['SCREEN_UPDATE_INTERVAL']
+        DEBUG_SCREEN_ACTIVE = data['DEBUG_SCREEN_ACTIVE']
+        SCREEN_TIMEOUT = data['SCREEN_TIMEOUT']
 
 except OSError:  # open failed
     SSID1 = None
@@ -115,6 +116,7 @@ except OSError:  # open failed
     START_MQTT = 0
     SCREEN_UPDATE_INTERVAL = 5
     DEBUG_SCREEN_ACTIVE = 1
+    SCREEN_TIMEOUT = 10
 
 def restart_and_reconnect():
     #  Last resort
@@ -196,7 +198,7 @@ class ConnectWiFi(object):
             self.search_wifi_networks()
 
     def start_webrepl(self):
-        if self.webrepl_started is False:
+        if (self.webrepl_started is False) and (START_WEBREPL == 1):
             if WEBREPL_PASSWORD is not None:
                 try:
                     webrepl.start(password=WEBREPL_PASSWORD)
@@ -208,7 +210,6 @@ class ConnectWiFi(object):
                     webrepl.start()
                     self.webrepl_started = True
                 except OSError as e:
-                    print("WebREPL do not start. Error %s" % e)
                     self.display.row_by_row_text("WebREPL do not start. Error %s" % e, 'red')
                     return False
 
@@ -428,16 +429,23 @@ class TFTDisplay(object):
 
         self.leftindent_pixels = 12
         self.diag_count = 0
-        self.screen_timeout = 10
+        self.screen_timeout = SCREEN_TIMEOUT
         self.keyboard = None
         self.keyboard_show = False
         # If all ok is False, change background color etc
         self.all_ok = True
-        self.screen_update_interval = 5
+        self.screen_update_interval = SCREEN_UPDATE_INTERVAL
         #  To avoid duplicate screens
         self.setup_screen_active = False
-        # TODO test normally controlled from network setup screen
-        self.connect_to_wifi = True
+        # TODO controlled from network setup screen
+        if START_NETWORK == 1:
+            self.connect_to_wifi = True
+        else:
+            self.connect_to_wifi = False
+        if START_MQTT == 1:
+            self.connect_to_mqtt = True
+        else:
+            self.connect_to_mqtt = False
 
     def try_to_connect(self, ssid, pwd):
         """ Return WiFi connection status.
@@ -688,7 +696,7 @@ class TFTDisplay(object):
             row4_colour = 'yellow'
         else:
             row4 = "Air Quality Index: %s" % ("{:.1f}".format(airquality.aqinndex))
-            row4_colour = 'red'
+            row4_colour = 'black'
         row5 = "Temp: "
         row5_colour = 'yellow'
         row6 = "Rh: "
@@ -756,15 +764,15 @@ class TFTDisplay(object):
     @staticmethod
     async def show_status_monitor_screen():
         row1 = "Memory free: %s" % gc.mem_free()
-        row1_colour = 'light_coral'
+        row1_colour = 'black'
         row2 = "CPU ticks: %s" % utime.ticks_cpu()
         row2_colour = 'white'
         row3 = "WiFi Strenth: %s" % wifinet.wifi_strenth
-        row3_colour = 'light_coral'
+        row3_colour = 'black'
         row4 = "MHZ19B CRC errors: %s " % co2sensor.crc_errors
         row4_colour = 'white'
         row5 = "MHZ19B Range errors: %s" % co2sensor.range_errors
-        row5_colour = 'light_coral'
+        row5_colour = 'black'
         row6 = "PMS7003 version %s" % pms.pms_dictionary['VERSION']
         row6_colour = 'white'
         row7 = " "
