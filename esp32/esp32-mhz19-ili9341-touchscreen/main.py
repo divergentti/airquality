@@ -37,6 +37,9 @@ Libraries:
             Fixed also MHZ19 class reading so that values can not be more than sensor range.
 19.01.2020: Added three first screens and logic for colour change if values over limit.
 20.01.2020: Added text boxes to the display for setting up network, IOT, display and Debug
+21.01.2020: Re-wrote network part so that it works for asynchronous setup, removed initial screen
+            Re-defined colours in the TFTDisplay class again, shortens code. Free mem 35424
+            TODO: setup screen init handler is not so responsive, needs long press
 
 This code is in its very beginning steps!
 
@@ -118,6 +121,7 @@ except OSError:  # open failed
     DEBUG_SCREEN_ACTIVE = 1
     SCREEN_TIMEOUT = 10
 
+
 def restart_and_reconnect():
     #  Last resort
     print("About to reboot in 20s... ctrl + c to break")
@@ -152,33 +156,47 @@ async def error_reporting(error):
 
 
 class ConnectWiFi(object):
-    """ This class creates network object for WiFi-connection. SSID may be defined in the parameters.py or
+    """ This class creates network object for WiFi-connection. SSID may be defined in the config or
     user may input a password, which is tried to WiFi APs within range. """
 
-    def __init__(self, displayin):
-        #  Check if we are already connected
+    def __init__(self):
+        self.network_connected = False
+        self.predefined = False
+        self.password = None
+        self.use_password = None
+        self.use_ssid = None
         self.ip_address = None
-        self.wifi_strenth = None
+        self.wifi_strength = None
         self.timeset = False
+        self.search_complete = False
         self.webrepl_started = False
         self.searh_list = []
         self.ssid_list = []
         self.mqttclient = None
-        self.display = displayin
-        self.display.setup_screen_active = True
+
+    async def network_update_loop(self):
+        if START_NETWORK == 1:
+            await self.check_network()
+            if self.network_connected is False:
+                await self.search_wifi_networks()
+                if self.search_complete is True:
+                    await self.connect_to_network()
+        if self.network_connected is True:
+            if self.timeset is False:
+                await self.set_time()
+            if self.webrepl_started is False:
+                await self.start_webrepl()
+        await asyncio.sleep(1)
+
+    async def check_network(self):
         if network.WLAN(network.STA_IF).config('essid') != '':
-            self.display.row_by_row_text("Connected to network %s" % network.WLAN(network.STA_IF).config('essid'),
-                                         'fuschia')
+            #  Already connected
             self.use_ssid = network.WLAN(network.STA_IF).config('essid')
-            self.display.row_by_row_text(('IP-address: %s' % network.WLAN(network.STA_IF).ifconfig()[0]), 'fuschia')
             self.ip_address = network.WLAN(network.STA_IF).ifconfig()[0]
-            self.display.row_by_row_text("WiFi-signal strength %s" % (network.WLAN(network.STA_IF).status('rssi')),
-                                         'fuschia')
-            self.wifi_strenth = network.WLAN(network.STA_IF).status('rssi')
+            self.wifi_strength = network.WLAN(network.STA_IF).status('rssi')
             self.network_connected = True
-            self.display.setup_screen_active = False
             self.use_ssid = network.WLAN(network.STA_IF).config('essid')
-            # resolve is essid in the predefined networks presented in parameters.py
+            # resolve is essid in the predefined networks presented in config
             if self.use_ssid == SSID1:
                 self.use_password = PASSWORD1
                 self.predefined = True
@@ -192,76 +210,63 @@ class ConnectWiFi(object):
             else:
                 self.predefined = False
             self.password = None
-            self.use_password = None    # Password may be from parameters.py or from user input
-            self.use_ssid = None   # SSID to be used will be decided later even it is in the parameters.py
+            self.use_password = None    # Password may be from config or from user input
+            self.use_ssid = None   # SSID to be used will be decided later even it is in the config
             self.network_connected = False
-            self.search_wifi_networks()
 
-    def start_webrepl(self):
+    async def start_webrepl(self):
         if (self.webrepl_started is False) and (START_WEBREPL == 1):
             if WEBREPL_PASSWORD is not None:
                 try:
                     webrepl.start(password=WEBREPL_PASSWORD)
                     self.webrepl_started = True
                 except OSError:
+                    self.webrepl_started = False
                     pass
             else:
                 try:
                     webrepl.start()
                     self.webrepl_started = True
-                except OSError as e:
-                    self.display.row_by_row_text("WebREPL do not start. Error %s" % e, 'red')
+                except OSError:
+                    self.webrepl_started = False
                     return False
+        await asyncio.sleep(0)
 
-    def set_time(self):
+    async def set_time(self):
+        if NTPSERVER is not None:
+            ntptime.host = NTPSERVER
         if self.timeset is False:
             try:
                 ntptime.settime()
                 self.timeset = True
             except OSError as e:
-                self.display.row_by_row_text("No time from NTP server %s! Error %s" % (NTPSERVER, e), 'red')
+                await display.row_by_row_text("No time from NTP server %s! Error %s" % (NTPSERVER, e), 'red')
                 self.timeset = False
                 return False
-            self.display.row_by_row_text("Time: %s " % str(utime.localtime(utime.time())), 'white')
-            self.display.setup_screen_active = False
+        await asyncio.sleep(0)
 
-    def search_wifi_networks(self):
+    async def search_wifi_networks(self):
         # Begin with adapter reset
         network.WLAN(network.STA_IF).active(False)
-        utime.sleep(2)
+        await asyncio.sleep(2)
         network.WLAN(network.STA_IF).active(True)
-        utime.sleep(3)
-        if DHCP_NAME is not None:
-            network.WLAN(network.STA_IF).config(dhcp_hostname=DHCP_NAME)
-        if NTPSERVER is not None:
-            ntptime.host = NTPSERVER
-        self.display.row_by_row_text("Check what hotspots we see", 'green')
+        await asyncio.sleep(3)
         try:
             # Generate list of WiFi hotspots in range
             self.ssid_list = network.WLAN(network.STA_IF).scan()
-            utime.sleep(5)
+            await asyncio.sleep(5)
         except self.ssid_list == []:
             print("No WiFi-networks within range!")
-            self.display.row_by_row_text("No WiFi-networks within range!", 'red')
-            utime.sleep(10)
+            return False
         except OSError:
             return False
-
-        if len(self.ssid_list) > 0:
-            self.display.row_by_row_text("Found following hotspots:", 'green')
-            for i in self.ssid_list:
-                display.row_by_row_text(i[0].decode(), 'white')
-
         if self.predefined is True:
-            #  Network to be connected is in the parameters.py. Check if SSID1 or SSID2 is in the list
-            self.display.row_by_row_text("Checking predefined networks...", 'white')
+            #  Network to be connected is in the config. Check if SSID1 or SSID2 is in the list
             try:
                 self.searh_list = [item for item in self.ssid_list if item[0].decode() == SSID1 or
                                    item[0].decode() == SSID2]
             except ValueError:
                 # SSDI not found within signal range
-                self.display.row_by_row_text("Parameters.py SSIDs not found in the signal range!", 'red')
-                utime.sleep(10)
                 return False
             # If both are found, select one which has highest stregth
             if len(self.searh_list) == 2:
@@ -269,17 +274,16 @@ class ConnectWiFi(object):
                 if self.searh_list[0][-3] > self.searh_list[1][-3]:
                     self.use_ssid = self.searh_list[0][0].decode()
                     self.use_password = PASSWORD1
-                    self.display.row_by_row_text("Using hotspot: %s" % self.use_ssid, 'yellow')
+                    self.search_complete = True
                 else:
                     self.use_ssid = self.searh_list[1][0].decode()
                     self.use_password = PASSWORD2
-                    self.display.row_by_row_text("Using hotspot: %s" % self.use_ssid, 'yellow')
+                    self.search_complete = True
             else:
                 # only 1 in the list
                 self.use_ssid = self.searh_list[0][0].decode()
                 self.use_password = PASSWORD1
-                self.display.row_by_row_text("Using hotspot: %s" % self.use_ssid, 'yellow')
-
+                self.search_complete = True
         if self.predefined is False:
             #  Networks not defined in the parameters.py, let's try password to any WiFi order by signal strength
             #  Tries empty password too
@@ -295,38 +299,26 @@ class ConnectWiFi(object):
                     z = +1
 
     async def connect_to_network(self):
-        #  We know which network we should connect to, but shall we connect?
-        self.display.setup_screen_active = True
-        self.display.row_by_row_text("Connecting to AP %s ..." % self.use_ssid, 'green')
+        #  We know which network we should connect to, but shall we connect
+        if DHCP_NAME is not None:
+            network.WLAN(network.STA_IF).config(dhcp_hostname=DHCP_NAME)
         try:
             network.WLAN(network.STA_IF).connect(self.use_ssid, self.use_password)
-            utime.sleep(10)
+            await asyncio.sleep(10)
         except network.WLAN(network.STA_IF).ifconfig()[0] == '0.0.0.0':
-            self.display.row_by_row_text("No IP address!", 'red')
-            utime.sleep(5)
+            self.network_connected = False
             return False
         except OSError:
             pass
         finally:
             if network.WLAN(network.STA_IF).ifconfig()[0] != '0.0.0.0':
-                self.set_time()
-                self.start_webrepl()
-                self.display.row_by_row_text("Connected to network %s" % network.WLAN(network.STA_IF).config('essid'),
-                                             'green')
                 self.use_ssid = network.WLAN(network.STA_IF).config('essid')
-                self.display.row_by_row_text(('IP-address: %s' % network.WLAN(network.STA_IF).ifconfig()[0]), 'green')
                 self.ip_address = network.WLAN(network.STA_IF).ifconfig()[0]
-                self.display.row_by_row_text("WiFi-signal strength %s" % (network.WLAN(network.STA_IF).status('rssi')),
-                                             'green')
-                self.wifi_strenth = network.WLAN(network.STA_IF).status('rssi')
+                self.wifi_strength = network.WLAN(network.STA_IF).status('rssi')
                 self.network_connected = True
-                self.display.setup_screen_active = False
-                return True
             else:
-                self.display.row_by_row_text("No network connection! Soft rebooting in 10s...", 'red')
                 self.network_connected = False
-                utime.sleep(10)
-                reset()
+        await asyncio.sleep(1)
 
     def mqtt_init(self):
         config['server'] = MQTT_SERVER
@@ -437,15 +429,6 @@ class TFTDisplay(object):
         self.screen_update_interval = SCREEN_UPDATE_INTERVAL
         #  To avoid duplicate screens
         self.setup_screen_active = False
-        # TODO controlled from network setup screen
-        if START_NETWORK == 1:
-            self.connect_to_wifi = True
-        else:
-            self.connect_to_wifi = False
-        if START_MQTT == 1:
-            self.connect_to_mqtt = True
-        else:
-            self.connect_to_mqtt = False
 
     def try_to_connect(self, ssid, pwd):
         """ Return WiFi connection status.
@@ -595,6 +578,12 @@ class TFTDisplay(object):
     async def run_display_loop(self):
         # TODO: Initial welcome screen?
 
+        if (START_NETWORK == 1) and (wifinet.network_connected is False):
+            await self.row_by_row_text("Network booting up, wait", 'red')
+            await asyncio.sleep(5)
+        else:
+            pass
+
         # await self.show_welcome_screen()
 
         # NOTE: Loop is started in the main()
@@ -616,7 +605,6 @@ class TFTDisplay(object):
                 rows, rowcolours = await self.show_status_monitor_screen()
                 await self.show_screen(rows, rowcolours)
             await asyncio.sleep_ms(1)
-
 
     async def show_screen(self, rows, rowcolours):
         row1 = "Airquality 0.02"
@@ -765,9 +753,9 @@ class TFTDisplay(object):
     async def show_status_monitor_screen():
         row1 = "Memory free: %s" % gc.mem_free()
         row1_colour = 'black'
-        row2 = "CPU ticks: %s" % utime.ticks_cpu()
+        row2 = "WiFi IP: %s" % wifinet.ip_address
         row2_colour = 'white'
-        row3 = "WiFi Strenth: %s" % wifinet.wifi_strenth
+        row3 = "WiFi Strength: %s" % wifinet.wifi_strength
         row3_colour = 'black'
         row4 = "MHZ19B CRC errors: %s " % co2sensor.crc_errors
         row4_colour = 'white'
@@ -840,13 +828,16 @@ async def show_what_i_do():
         print("Air quality index: %s " % airquality.aqinndex)
         print("CO2: %s" % co2sensor.co2_value)
         print("Average: %s" % co2sensor.co2_average)
-        print("Touchscreen pressed %s" % display.touchscreen_pressed )
+        print("WiFi Connected %s" % wifinet.network_connected)
+        print("Touchscreen pressed %s" % display.touchscreen_pressed)
         print("-------")
         await asyncio.sleep(1)
 
 
 # Kick in some speed, max 240000000, normal 160000000, min with WiFi 80000000
 # freq(240000000)
+
+wifinet = ConnectWiFi()
 
 # Sensor and controller objects
 # Particle sensor
@@ -858,7 +849,7 @@ co2sensor = CO2.MHZ19bCO2(uart=CO2_SENSOR_UART, rxpin=CO2_SENSOR_RX_PIN, txpin=C
 #  If you use UART2, you have to delete object and re-create it after power on boot!
 if reset_cause() == 1:
     del co2sensor
-    utime.sleep(5)
+    utime.sleep(2)
     co2sensor = CO2.MHZ19bCO2(uart=CO2_SENSOR_UART, rxpin=CO2_SENSOR_RX_PIN, txpin=CO2_SENSOR_TX_PIN)
 
 # Display and touchscreen
@@ -869,42 +860,22 @@ touchscreenspi.init(baudrate=1100000, sck=Pin(TFT_TOUCH_SCLK_PIN), mosi=Pin(TFT_
                     miso=Pin(TFT_TOUCH_MISO_PIN))
 displayspi = SPI(TFT_SPI)  # VSPI - baudrate 40 - 90 MHz appears to be working, screen update still slow
 displayspi.init(baudrate=40000000, sck=Pin(TFT_CLK_PIN), mosi=Pin(TFT_MOSI_PIN), miso=Pin(TFT_MISO_PIN))
-
-# Initialize display object prior to wifinet-object!
 display = TFTDisplay(touchscreenspi, displayspi)
-wifinet = ConnectWiFi(display)
 
 
 async def main():
     gc.collect()
-    """ try:
-        await client.connect()
-    except OSError as ex:
-        print("Error %s. Perhaps mqtt username or password is wrong or missing or broker down?" % ex)
-        raise
-    # asyncio.create_task(mqtt_up_loop()) """
+    # asyncio.create_task(wifinet.mqtt_up_loop()) """
     # Create all loops here, not within object classes!
     loop = asyncio.get_event_loop()
+    loop.create_task(wifinet.network_update_loop())  # manage network connection
     loop.create_task(pms.read_async_loop())  # read sensor
     loop.create_task(co2sensor.read_co2_loop())   # read sensor
     loop.create_task(airquality.update_airqualiy_loop())   # calculates continuously aqi
     loop.create_task(collect_carbage_and_update_status_loop())  # updates alarm flags on display too
     loop.create_task(show_what_i_do())    # output REPL
     loop.create_task(display.run_display_loop())   # start display show
-
     gc.collect()
-
-    if (display.connect_to_wifi is True) and (wifinet.network_connected is False):
-        await wifinet.connect_to_network()
-
-    """ 
-     if wifinet.network_connected is True:
-        display.row_by_row_text("Network up, begin operations", 'blue')
-        await display.run_display()
-    else:
-        display.row_by_row_text("Network down, running setup", 'yellow')
-        await display.show_network_setup_screen() 
-    """
 
     # loop.run_forever()
 
