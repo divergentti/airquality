@@ -389,7 +389,7 @@ class TFTDisplay(object):
         # Touchscreen
         self.xpt = Touch(spi=touchspi, cs=Pin(TFT_TOUCH_CS_PIN), int_pin=Pin(TFT_TOUCH_IRQ_PIN),
                          width=240, height=320, x_min=100, x_max=1962, y_min=100, y_max=1900)
-        self.xpt.int_handler = self.first_press
+        # self.xpt.int_handler = self.first_press
         self.touchscreen_pressed = False
         self.screen_activation_time = None
         self.rownumber = 1
@@ -442,11 +442,17 @@ class TFTDisplay(object):
 
         return status
 
-    def first_press(self, x, y):
-        """ If touchscreen is pressed, change status """
-        gc.collect()
-        # self.display.clear()
-        self.touchscreen_pressed = True
+    async def monitor_touchscreen_status(self):
+        while True:
+            if self.xpt.pressed is True:
+                self.touchscreen_pressed = True
+                if self.setup_screen_active is False:
+                    # First setup screen
+                    self.xpt.int_handler = self.select_setup_box
+                    self.draw_setup_screen()
+                else:
+                    self.xpt.pressed = False
+            await asyncio.sleep_ms(0)
 
     def draw_setup_screen(self):
         """ Split screen to 4 divisions, network setup, iot setup, display setup and debug setup  """
@@ -477,10 +483,10 @@ class TFTDisplay(object):
                                self.colours['white'], self.colours['blue'])
         # Is network up or down?
         if wifinet.network_connected is True:
-            self.display.draw_text(self.textbox1_x + 10, self.textbox1_y + 2, "Network is UP: %s" % wifinet.ip_address,
+            self.display.draw_text(self.textbox1_x + 5, self.textbox1_y + 2, "Network UP: %s" % wifinet.ip_address,
                                    self.fixedfont, self.colours['green'])
         else:
-            self.display.draw_text(self.textbox1_x + 10, self.textbox1_y + 2, "Network is DOWN", self.fixedfont,
+            self.display.draw_text(self.textbox1_x + 5, self.textbox1_y + 2, "Network DOWN", self.fixedfont,
                                    self.colours['purple'])
 
         # For IOT Setup
@@ -527,8 +533,9 @@ class TFTDisplay(object):
                 print("Display chosen")
                 # Test
                 self.touchscreen_pressed = False
+                self.xpt.pressed = False
                 # Go back to first interrupt handler
-                self.xpt.int_handler = self.first_press
+                self.xpt.int_handler = None
 
     def activate_keyboard(self, x, y):
         #  Setup keyboard
@@ -577,18 +584,12 @@ class TFTDisplay(object):
 
     async def run_display_loop(self):
         # TODO: Initial welcome screen?
-
-        if (START_NETWORK == 1) and (wifinet.network_connected is False):
-            await self.row_by_row_text("Network booting up, wait", 'red')
-            await asyncio.sleep(5)
-        else:
-            pass
-
-        # await self.show_welcome_screen()
+        gc.collect()
 
         # NOTE: Loop is started in the main()
 
         while True:
+            """
             if self.touchscreen_pressed is True:
                 if self.setup_screen_active is False:
                     # First setup screen
@@ -597,14 +598,17 @@ class TFTDisplay(object):
                     # Draw setup screen just once
                     # TODO: screen timeout
                     pass
-            elif self.touchscreen_pressed is False:
+                    """
+            if self.touchscreen_pressed is False:
                 rows, rowcolours = await self.show_time_co2_temp_screen()
                 await self.show_screen(rows, rowcolours)
+            if self.touchscreen_pressed is False:
                 rows, rowcolours = await self.show_particle_screen()
                 await self.show_screen(rows, rowcolours)
+            if self.touchscreen_pressed is False:
                 rows, rowcolours = await self.show_status_monitor_screen()
                 await self.show_screen(rows, rowcolours)
-            await asyncio.sleep_ms(1)
+            await asyncio.sleep_ms(0)
 
     async def show_screen(self, rows, rowcolours):
         row1 = "Airquality 0.02"
@@ -875,6 +879,7 @@ async def main():
     loop.create_task(collect_carbage_and_update_status_loop())  # updates alarm flags on display too
     loop.create_task(show_what_i_do())    # output REPL
     loop.create_task(display.run_display_loop())   # start display show
+    loop.create_task(display.monitor_touchscreen_status())  # toucscreen status change
     gc.collect()
 
     # loop.run_forever()
