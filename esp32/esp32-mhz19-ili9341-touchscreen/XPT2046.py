@@ -1,5 +1,9 @@
 # Source https://github.com/rdagger/micropython-ili9341/blob/master/xpt2046.py
-"""XPT2046 Touch module. """
+"""XPT2046 Touch module.
+
+Added self.pressed due to fact irq handler is too slow.
+
+"""
 from time import sleep
 from micropython import const
 
@@ -50,7 +54,7 @@ class Touch(object):
         self.y_multiplier = height / (y_max - y_min)
         self.y_add = y_min * -self.y_multiplier
         # Calculate time pressed
-        self.time_pressed = None
+        self.pressed = False
 
         if int_pin is not None:
             self.int_pin = int_pin
@@ -91,6 +95,7 @@ class Touch(object):
 
     def int_press(self, pin):
         """Send X,Y values to passed interrupt handler."""
+        self.pressed = True
         if not pin.value() and not self.int_locked:
             self.int_locked = True  # Lock Interrupt
             buff = self.raw_touch()
@@ -98,10 +103,11 @@ class Touch(object):
             if buff is not None:
                 x, y = self.normalize(*buff)
                 self.int_handler(x, y)
-            sleep(.05)  # Debounce falling edge
+            sleep(.1)  # Debounce falling edge
         elif pin.value() and self.int_locked:
-            sleep(.05)  # Debounce rising edge
+            sleep(.1)  # Debounce rising edge
             self.int_locked = False  # Unlock interrupt
+
 
     def normalize(self, x, y):
         """Normalize mean X,Y values to match LCD screen."""
