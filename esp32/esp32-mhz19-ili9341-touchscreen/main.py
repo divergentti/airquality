@@ -853,7 +853,7 @@ co2sensor = CO2.MHZ19bCO2(uart=CO2_SENSOR_UART, rxpin=CO2_SENSOR_RX_PIN, txpin=C
 #  If you use UART2, you have to delete object and re-create it after power on boot!
 if reset_cause() == 1:
     del co2sensor
-    utime.sleep(2)
+    utime.sleep(5)  # 2 is not enough
     co2sensor = CO2.MHZ19bCO2(uart=CO2_SENSOR_UART, rxpin=CO2_SENSOR_RX_PIN, txpin=CO2_SENSOR_TX_PIN)
 
 # Display and touchscreen
