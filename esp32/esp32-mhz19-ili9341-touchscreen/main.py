@@ -41,7 +41,7 @@ Libraries:
 This code is in its very beginning steps!
 
 """
-from machine import SPI, Pin, reset, freq, reset_cause, Timer
+from machine import SPI, Pin, reset, freq, reset_cause
 import uasyncio as asyncio
 import utime
 import gc
@@ -79,6 +79,7 @@ def restart_and_reconnect():
 
 def resolve_date():
     (year, month, mdate, hour, minute, second, wday, yday) = utime.localtime()
+    weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
     """ Simple DST for Finland """
     summer_march = utime.mktime((year, 3, (14 - (int(5 * year / 4 + 1)) % 7), 1, 0, 0, 0, 0, 0))
     winter_december = utime.mktime((year, 10, (7 - (int(5 * year / 4 + 1)) % 7), 1, 0, 0, 0, 0, 0))
@@ -91,7 +92,7 @@ def resolve_date():
     (year, month, mdate, hour, minute, second, wday, yday) = dst
     day = "%s.%s.%s" % (mdate, month, year)
     time = "%s:%s:%s" % ("{:02d}".format(hour), "{:02d}".format(minute), "{:02d}".format(second))
-    return day, time
+    return day, time, weekdays[wday]
 
 
 async def error_reporting(error):
@@ -350,6 +351,8 @@ class TFTDisplay(object):
         self.xpt = Touch(spi=touchspi, cs=Pin(TFT_TOUCH_CS_PIN), int_pin=Pin(TFT_TOUCH_IRQ_PIN),
                          width=240, height=320, x_min=100, x_max=1962, y_min=100, y_max=1900)
         self.xpt.int_handler = self.first_press
+        self.touchscreen_pressed = False
+        self.screen_activation_time = None
         self.rownumber = 1
         self.rowheight = 10
         self.fontheight = 10
@@ -379,8 +382,7 @@ class TFTDisplay(object):
 
         self.leftindent_pixels = 12
         self.diag_count = 0
-        self.screen_timeout = False
-        self.timeout_timer = Timer(-1)
+        self.screen_timeout = 10
         self.keyboard = None
         self.keyboard_show = False
         # If all ok is False, change background color etc
@@ -404,15 +406,16 @@ class TFTDisplay(object):
         return status
 
     def first_press(self, x, y):
-        """ If touchscreen is pressed, draw first setup screen """
+        """ If touchscreen is pressed, change status """
         gc.collect()
         # self.display.clear()
-        self.keyboard_show = False
-        self.setup_screen_active = True
-        self.draw_setup_screen()
+        self.touchscreen_pressed = True
 
     def draw_setup_screen(self):
         """ Split screen to 4 divisions, network setup, iot setup, display setup and debug setup  """
+        # Activation timer is used to calculate timeout - cleared from screen loop!
+        self.setup_screen_active = True
+        self.screen_activation_time = utime.time()
         self.active_font = self.unispace
         self.fontheight = self.active_font.height
         self.fontwidth = self.active_font.width
@@ -437,10 +440,10 @@ class TFTDisplay(object):
                                self.colours['white'], self.colours['blue'])
         # Is network up or down?
         if wifinet.network_connected is True:
-            self.display.draw_text(self.textbox1_x + 2, self.textbox1_y + 2, "Network up",
+            self.display.draw_text(self.textbox1_x + 10, self.textbox1_y + 2, "Network is UP: %s" % wifinet.ip_address,
                                    self.fixedfont, self.colours['green'])
         else:
-            self.display.draw_text(self.textbox1_x + 2, self.textbox1_y + 2, "Network down", self.fixedfont,
+            self.display.draw_text(self.textbox1_x + 10, self.textbox1_y + 2, "Network is DOWN", self.fixedfont,
                                    self.colours['purple'])
 
         # For IOT Setup
@@ -453,7 +456,7 @@ class TFTDisplay(object):
         self.display.fill_rectangle(self.textbox3_x, self.textbox3_y, self.textbox3_w, self.textbox3_h,
                                     self.colours['light_green'])
         self.display.draw_text(textbox3_1_mid_x, textbox3_1_mid_y, textbox3_1, self.active_font,
-                               self.colours['light_green'], self.colours['white'])
+                               self.colours['light_green'], self.colours['light_green'])
 
         # For Debug setup
         self.display.fill_rectangle(self.textbox4_x, self.textbox4_y, self.textbox4_w, self.textbox4_h,
@@ -485,6 +488,10 @@ class TFTDisplay(object):
                 print("Debug chosen")
             else:
                 print("Display chosen")
+                # Test
+                self.touchscreen_pressed = False
+                # Go back to first interrupt handler
+                self.xpt.int_handler = self.first_press
 
     def activate_keyboard(self, x, y):
         #  Setup keyboard
@@ -518,7 +525,7 @@ class TFTDisplay(object):
             self.keyboard.locked = False
             self.keyboard_show = False
 
-    def row_by_row_text(self, message, color):
+    async def row_by_row_text(self, message, color):
         self.active_font = self.arcadepix
         self.fontheight = self.active_font.height
         self.rowheight = self.fontheight + 2  # 2 pixel space between rows
@@ -529,6 +536,7 @@ class TFTDisplay(object):
             # TODO: scrolling screen!
             # self.display.cleanup()
             self.rownumber = 1
+        await asyncio.sleep(0)
 
     async def run_display_loop(self):
         # TODO: Initial welcome screen?
@@ -538,15 +546,23 @@ class TFTDisplay(object):
         # NOTE: Loop is started in the main()
 
         while True:
-            if self.setup_screen_active is False:
+            if self.touchscreen_pressed is True:
+                if self.setup_screen_active is False:
+                    # First setup screen
+                    self.draw_setup_screen()
+                else:
+                    # Draw setup screen just once
+                    # TODO: screen timeout
+                    pass
+            elif self.touchscreen_pressed is False:
                 rows, rowcolours = await self.show_time_co2_temp_screen()
                 await self.show_screen(rows, rowcolours)
                 rows, rowcolours = await self.show_particle_screen()
                 await self.show_screen(rows, rowcolours)
                 rows, rowcolours = await self.show_status_monitor_screen()
                 await self.show_screen(rows, rowcolours)
-            else:
-                await asyncio.sleep(1)
+            await asyncio.sleep_ms(1)
+
 
     async def show_screen(self, rows, rowcolours):
         row1 = "Airquality 0.02"
@@ -570,29 +586,28 @@ class TFTDisplay(object):
             if len(rowcolours) == 7:
                 row1_colour, row2_colour, row3_colour, row4_colour, row5_colour, row6_colour, row7_colour = rowcolours
 
-        if (self.keyboard_show is False) and (self.setup_screen_active is False):
-            if self.all_ok is True:
-                await self.draw_all_ok_background()
-            else:
-                await self.draw_error_background()
-            self.active_font = self.unispace
-            self.fontheight = self.active_font.height
-            self.rowheight = self.fontheight + 2  # 2 pixel space between rows
-            self.display.draw_text(self.leftindent_pixels, 25, row1, self.active_font, self.colours[row1_colour],
-                                   self.colours[self.colour_background])
-            self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight, row2, self.active_font,
-                                   self.colours[row2_colour], self.colours[self.colour_background])
-            self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight * 2, row3, self.active_font,
-                                   self.colours[row3_colour], self.colours[self.colour_background])
-            self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight * 3, row4, self.active_font,
-                                   self.colours[row4_colour], self.colours[self.colour_background])
-            self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight * 4, row5, self.active_font,
-                                   self.colours[row5_colour], self.colours[self.colour_background])
-            self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight * 5, row6, self.active_font,
-                                   self.colours[row6_colour], self.colours[self.colour_background])
-            self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight * 6, row7, self.active_font,
-                                   self.colours[row7_colour], self.colours[self.colour_background])
-            await asyncio.sleep(self.screen_update_interval)
+        if self.all_ok is True:
+            await self.draw_all_ok_background()
+        else:
+            await self.draw_error_background()
+        self.active_font = self.unispace
+        self.fontheight = self.active_font.height
+        self.rowheight = self.fontheight + 2  # 2 pixel space between rows
+        self.display.draw_text(self.leftindent_pixels, 25, row1, self.active_font, self.colours[row1_colour],
+                               self.colours[self.colour_background])
+        self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight, row2, self.active_font,
+                               self.colours[row2_colour], self.colours[self.colour_background])
+        self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight * 2, row3, self.active_font,
+                               self.colours[row3_colour], self.colours[self.colour_background])
+        self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight * 3, row4, self.active_font,
+                               self.colours[row4_colour], self.colours[self.colour_background])
+        self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight * 4, row5, self.active_font,
+                               self.colours[row5_colour], self.colours[self.colour_background])
+        self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight * 5, row6, self.active_font,
+                               self.colours[row6_colour], self.colours[self.colour_background])
+        self.display.draw_text(self.leftindent_pixels, 25 + self.rowheight * 6, row7, self.active_font,
+                               self.colours[row7_colour], self.colours[self.colour_background])
+        await asyncio.sleep(self.screen_update_interval)
 
     async def draw_all_ok_background(self):
         self.display.fill_rectangle(0, 0, self.display.width, self.display.height, self.colours['yellow'])
@@ -607,9 +622,9 @@ class TFTDisplay(object):
 
     @staticmethod
     async def show_time_co2_temp_screen():
-        row1 = "%s %s" % resolve_date()
+        row1 = "%s %s" % (resolve_date()[0], resolve_date()[1])
         row1_colour = 'white'
-        row2 = " "
+        row2 = "Today is %s " % resolve_date()[2]
         row2_colour = 'white'
         # To avoid nonetype errors
         if co2sensor.co2_value is None:
@@ -621,19 +636,19 @@ class TFTDisplay(object):
         else:
             row3 = "CO2: %s ppm (%s)" % ("{:.1f}".format(co2sensor.co2_value),
                                          "{:.1f}".format(co2sensor.co2_average))
-            row3_colour = 'white'
+            row3_colour = 'blue'
         if airquality.aqinndex is None:
             row4 = "AirQuality not ready"
             row4_colour = 'yellow'
         else:
             row4 = "Air Quality Index: %s" % ("{:.1f}".format(airquality.aqinndex))
-            row4_colour = 'white'
+            row4_colour = 'red'
         row5 = "Temp: "
-        row5_colour = 'white'
+        row5_colour = 'yellow'
         row6 = "Rh: "
-        row6_colour = 'white'
-        row7 = "Pressure: %s" % gc.mem_free()
-        row7_colour = 'white'
+        row6_colour = 'yellow'
+        row7 = "Pressure: "
+        row7_colour = 'yellow'
         rows = row1, row2, row3, row4, row5, row6, row7
         row_colours = row1_colour, row2_colour, row3_colour, row4_colour, row5_colour, row6_colour, row7_colour
         return rows, row_colours
@@ -642,41 +657,41 @@ class TFTDisplay(object):
     async def show_particle_screen():
         if pms.pms_dictionary is not None:
             row1 = "1. Concentration ug/m3:"
-            row1_colour = 'white'
+            row1_colour = 'blue'
             if (pms.pms_dictionary['PM1_0'] is not None) and (pms.pms_dictionary['PM1_0_ATM'] is not None) and \
                     (pms.pms_dictionary['PM2_5'] is not None) and (pms.pms_dictionary['PM2_5_ATM'] is not None):
                 row2 = " PM1:%s (%s) PM2.5:%s (%s)" % (pms.pms_dictionary['PM1_0'],
                                                        pms.pms_dictionary['PM1_0_ATM'],
                                                        pms.pms_dictionary['PM2_5'],
                                                        pms.pms_dictionary['PM2_5_ATM'])
-                row2_colour = 'white'
+                row2_colour = 'black'
             else:
                 row2 = " Waiting"
                 row2_colour = 'yellow'
             if (pms.pms_dictionary['PM10_0'] is not None) and (pms.pms_dictionary['PM10_0_ATM'] is not None):
                 row3 = " PM10: %s (ATM: %s)" % (pms.pms_dictionary['PM10_0'], pms.pms_dictionary['PM10_0_ATM'])
-                row3_colour = 'white'
+                row3_colour = 'black'
 
             else:
                 row3 = "Waiting"
                 row3_colour = 'yellow'
             row4 = "2. Particle count/1L/um:"
-            row4_colour = 'white'
+            row4_colour = 'blue'
             if (pms.pms_dictionary['PCNT_0_3'] is not None) and (pms.pms_dictionary['PCNT_0_5'] is not None):
                 row5 = " %s < 0.3 & %s <0.5 " % (pms.pms_dictionary['PCNT_0_3'], pms.pms_dictionary['PCNT_0_5'])
-                row5_colour = 'white'
+                row5_colour = 'navy'
             else:
                 row5 = " Waiting"
                 row5_colour = 'yellow'
             if (pms.pms_dictionary['PCNT_1_0'] is not None) and (pms.pms_dictionary['PCNT_2_5'] is not None):
                 row6 = " %s < 1.0 & %s < 2.5" % (pms.pms_dictionary['PCNT_1_0'], pms.pms_dictionary['PCNT_2_5'])
-                row6_colour = 'white'
+                row6_colour = 'navy'
             else:
                 row6 = "Waiting"
                 row6_colour = 'yellow'
             if (pms.pms_dictionary['PCNT_5_0'] is not None) and (pms.pms_dictionary['PCNT_10_0'] is not None):
                 row7 = " %s < 5.0 & %s < 10.0" % (pms.pms_dictionary['PCNT_5_0'], pms.pms_dictionary['PCNT_10_0'])
-                row7_colour = 'white'
+                row7_colour = 'navy'
             else:
                 row7 = " Waiting"
                 row7_colour = 'yellow'
@@ -695,15 +710,15 @@ class TFTDisplay(object):
     @staticmethod
     async def show_status_monitor_screen():
         row1 = "Memory free: %s" % gc.mem_free()
-        row1_colour = 'white'
+        row1_colour = 'light_coral'
         row2 = "CPU ticks: %s" % utime.ticks_cpu()
         row2_colour = 'white'
         row3 = "WiFi Strenth: %s" % wifinet.wifi_strenth
-        row3_colour = 'white'
+        row3_colour = 'light_coral'
         row4 = "MHZ19B CRC errors: %s " % co2sensor.crc_errors
         row4_colour = 'white'
         row5 = "MHZ19B Range errors: %s" % co2sensor.range_errors
-        row5_colour = 'white'
+        row5_colour = 'light_coral'
         row6 = "PMS7003 version %s" % pms.pms_dictionary['VERSION']
         row6_colour = 'white'
         row7 = " "
@@ -771,12 +786,13 @@ async def show_what_i_do():
         print("Air quality index: %s " % airquality.aqinndex)
         print("CO2: %s" % co2sensor.co2_value)
         print("Average: %s" % co2sensor.co2_average)
+        print("Touchscreen pressed %s" % display.touchscreen_pressed )
         print("-------")
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
 
 # Kick in some speed, max 240000000, normal 160000000, min with WiFi 80000000
-freq(240000000)
+# freq(240000000)
 
 # Sensor and controller objects
 # Particle sensor
@@ -819,8 +835,9 @@ async def main():
     loop.create_task(co2sensor.read_co2_loop())   # read sensor
     loop.create_task(airquality.update_airqualiy_loop())   # calculates continuously aqi
     loop.create_task(collect_carbage_and_update_status_loop())  # updates alarm flags on display too
-    # loop.create_task(show_what_i_do())    # output REPL
+    loop.create_task(show_what_i_do())    # output REPL
     loop.create_task(display.run_display_loop())   # start display show
+
     gc.collect()
 
     if (display.connect_to_wifi is True) and (wifinet.network_connected is False):
