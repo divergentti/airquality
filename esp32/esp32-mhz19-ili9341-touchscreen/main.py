@@ -56,19 +56,65 @@ from TOUCH_KEYBOARD import TouchKeyboard
 from AQI import AQI
 import PMS7003_AS as PARTICLES
 import MHZ19B_AS as CO2
+import json
 
 
+"""" Minimal config file relates to physical connections like GPIO's attached to sensors and displays.  """
 try:
     f = open('parameters.py', "r")
-    from parameters import SSID1, SSID2, PASSWORD1, PASSWORD2, MQTT_SERVER, MQTT_PASSWORD, MQTT_USER, MQTT_PORT, \
-        CLIENT_ID, TOPIC_ERRORS, CO2_SENSOR_RX_PIN, CO2_SENSOR_TX_PIN, CO2_SENSOR_UART, TFT_CS_PIN, TFT_DC_PIN, \
+    from parameters import CO2_SENSOR_RX_PIN, CO2_SENSOR_TX_PIN, CO2_SENSOR_UART, TFT_CS_PIN, TFT_DC_PIN, \
         TFT_TOUCH_MISO_PIN, TFT_TOUCH_CS_PIN, TFT_TOUCH_IRQ_PIN, TFT_TOUCH_MOSI_PIN, TFT_TOUCH_SCLK_PIN, TFT_CLK_PIN, \
-        TFT_RST_PIN, TFT_MISO_PIN, TFT_MOSI_PIN, TFT_SPI, TOUCHSCREEN_SPI, WEBREPL_PASSWORD, NTPSERVER, DHCP_NAME, \
+        TFT_RST_PIN, TFT_MISO_PIN, TFT_MOSI_PIN, TFT_SPI, TOUCHSCREEN_SPI, \
         PARTICLE_SENSOR_UART, PARTICLE_SENSOR_TX, PARTICLE_SENSOR_RX
+    f.close()
 except OSError:  # open failed
     print("parameter.py-file missing! Can not continue!")
     raise
 
+""" Runtime congig file will be updated by user  """
+try:
+    f = open('runtimeconfig.json', 'r')
+    with open('runtimeconfig.json') as config_file:
+        data = json.load(config_file)
+        f.close()
+        SSID1 = data['SSID1']
+        SSID2 = data['SSID2']
+        PASSWORD1 = data['PASSWORD1']
+        PASSWORD2 = data['PASSWORD2']
+        MQTT_SERVER = data['MQTT_SERVER']
+        MQTT_PASSWORD = data['MQTT_PASSWORD']
+        MQTT_USER = data['MQTT_USER']
+        MQTT_PORT = data['MQTT_PORT']
+        CLIENT_ID = data['CLIENT_ID']
+        TOPIC_ERRORS = data['TOPIC_ERRORS']
+        WEBREPL_PASSWORD = data['WEBREPL_PASSWORD']
+        NTPSERVER = data['NTPSERVER']
+        DHCP_NAME = data['DHCP_NAME']
+        START_WEBREPL = 0
+        START_NETWORK = 0
+        START_MQTT = 0
+        SCREEN_UPDATE_INTERVAL = 5
+        DEBUG_SCREEN_ACTIVE = 1
+
+except OSError:  # open failed
+    SSID1 = None
+    SSID2 = None
+    PASSWORD1 = None
+    PASSWORD2 = None
+    MQTT_SERVER = None
+    MQTT_PASSWORD = None
+    MQTT_USER = None
+    MQTT_PORT = None
+    CLIENT_ID = None
+    TOPIC_ERRORS = None
+    WEBREPL_PASSWORD = None
+    NTPSERVER = None
+    DHCP_NAME = None
+    START_WEBREPL = 0
+    START_NETWORK = 0
+    START_MQTT = 0
+    SCREEN_UPDATE_INTERVAL = 5
+    DEBUG_SCREEN_ACTIVE = 1
 
 def restart_and_reconnect():
     #  Last resort
