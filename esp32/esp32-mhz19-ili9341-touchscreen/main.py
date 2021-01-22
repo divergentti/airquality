@@ -7,8 +7,12 @@ Boot.py does not setup network. If user wants to connect to the network and to t
 from the display either with predefined SSID name and password, or password for accessible networks.
 
 
-Sensor datasheets:
-PMS7003 https://download.kamami.com/p564008-p564008-PMS7003%20series%20data%20manua_English_V2.5.pdf
+Datasheets:
+  PMS7003 https://download.kamami.com/p564008-p564008-PMS7003%20series%20data%20manua_English_V2.5.pdf
+  MH-Z19 https://www.winsen-sensor.com/d/files/PDF/Infrared%20Gas%20Sensor/NDIR%20CO2%20SENSOR/MH-Z19%20CO2%20Ver1.0.pdf
+  BME280 https://www.bosch-sensortec.com/products/environmental-sensors/humidity-sensors-bme280/
+  ILI9341 https://datasheetspdf.com/datasheet/ILI9341.html
+  XPT2046 https://components101.com/ics/xpt2046-touch-screen-controller-ic
 
 
 Libraries:
@@ -25,6 +29,7 @@ Libraries:
 !! DO NOT USE PyCharm to upload fonts or images to the ESP32! Use command ampy -p COMx directoryname instead!
    PyCharm can not handle directories in ESP32. For some reason it combines name of the directory and file to one file.
 
+If Touchscreen works weird, check your connectors! If you use dupont-connectors, throw them away after first use!
 
 13.01.2020: Jari Hiltunen
 14.01.2020: Network part shall be ok if parameters.py used and communicates with the display.
@@ -39,9 +44,8 @@ Libraries:
 20.01.2020: Added text boxes to the display for setting up network, IOT, display and Debug
 21.01.2020: Re-wrote network part so that it works for asynchronous setup, removed initial screen
             Re-defined colours in the TFTDisplay class again, shortens code. Free mem 35424
-            TODO: setup screen init handler is not so responsive, needs long press
+22.01.2020: Re-organized parameters. Added running configuration json and added monitoring for WiFi-connection.
 
-This code is in its very beginning steps!
 
 """
 from machine import SPI, Pin, reset, freq, reset_cause
@@ -156,8 +160,7 @@ async def error_reporting(error):
 
 
 class ConnectWiFi(object):
-    """ This class creates network object for WiFi-connection. SSID may be defined in the config or
-    user may input a password, which is tried to WiFi APs within range. """
+    """ This class creates network object for WiFi-connection. Two SSIDs may be predefined. """
 
     def __init__(self):
         self.network_connected = False
@@ -173,14 +176,18 @@ class ConnectWiFi(object):
         self.searh_list = []
         self.ssid_list = []
         self.mqttclient = None
+        self.connect_attemps_failed = 0
 
     async def network_update_loop(self):
         if START_NETWORK == 1:
             await self.check_network()
             if self.network_connected is False:
                 await self.search_wifi_networks()
-                if self.search_complete is True:
+                if (self.search_complete is True) and (self.connect_attemps_failed <= 20):
                     await self.connect_to_network()
+                    if self.connect_attemps_failed > 20:
+                        # Give up
+                        return False
         if self.network_connected is True:
             if self.timeset is False:
                 await self.set_time()
@@ -240,7 +247,6 @@ class ConnectWiFi(object):
                 ntptime.settime()
                 self.timeset = True
             except OSError as e:
-                await display.row_by_row_text("No time from NTP server %s! Error %s" % (NTPSERVER, e), 'red')
                 self.timeset = False
                 return False
         await asyncio.sleep(0)
@@ -256,12 +262,12 @@ class ConnectWiFi(object):
             self.ssid_list = network.WLAN(network.STA_IF).scan()
             await asyncio.sleep(5)
         except self.ssid_list == []:
-            print("No WiFi-networks within range!")
+            # No hotspots
             return False
         except OSError:
             return False
         if self.predefined is True:
-            #  Network to be connected is in the config. Check if SSID1 or SSID2 is in the list
+            #  Network to be connected is in the config. Check if SSID1 or SSID2 is in the AP range list
             try:
                 self.searh_list = [item for item in self.ssid_list if item[0].decode() == SSID1 or
                                    item[0].decode() == SSID2]
@@ -299,7 +305,7 @@ class ConnectWiFi(object):
                     z = +1
 
     async def connect_to_network(self):
-        #  We know which network we should connect to, but shall we connect
+        #  We know which network we should connect to
         if DHCP_NAME is not None:
             network.WLAN(network.STA_IF).config(dhcp_hostname=DHCP_NAME)
         try:
@@ -307,6 +313,7 @@ class ConnectWiFi(object):
             await asyncio.sleep(10)
         except network.WLAN(network.STA_IF).ifconfig()[0] == '0.0.0.0':
             self.network_connected = False
+            self.connect_attemps_failed += 1
             return False
         except OSError:
             pass
@@ -318,6 +325,7 @@ class ConnectWiFi(object):
                 self.network_connected = True
             else:
                 self.network_connected = False
+                self.connect_attemps_failed += 1
         await asyncio.sleep(1)
 
     def mqtt_init(self):
@@ -389,7 +397,7 @@ class TFTDisplay(object):
         # Touchscreen
         self.xpt = Touch(spi=touchspi, cs=Pin(TFT_TOUCH_CS_PIN), int_pin=Pin(TFT_TOUCH_IRQ_PIN),
                          width=240, height=320, x_min=100, x_max=1962, y_min=100, y_max=1900)
-        # self.xpt.int_handler = self.first_press
+        self.xpt.int_handler = self.first_press
         self.touchscreen_pressed = False
         self.screen_activation_time = None
         self.rownumber = 1
@@ -442,17 +450,11 @@ class TFTDisplay(object):
 
         return status
 
-    async def monitor_touchscreen_status(self):
-        while True:
-            if self.xpt.pressed is True:
-                self.touchscreen_pressed = True
-                if self.setup_screen_active is False:
-                    # First setup screen
-                    self.xpt.int_handler = self.select_setup_box
-                    self.draw_setup_screen()
-                else:
-                    self.xpt.pressed = False
-            await asyncio.sleep_ms(0)
+    def first_press(self, x, y):
+        # First time pressed
+        print(x, y)
+        self.touchscreen_pressed = True
+        self.draw_setup_screen()
 
     def draw_setup_screen(self):
         """ Split screen to 4 divisions, network setup, iot setup, display setup and debug setup  """
@@ -531,11 +533,8 @@ class TFTDisplay(object):
                 print("Debug chosen")
             else:
                 print("Display chosen")
-                # Test
-                self.touchscreen_pressed = False
-                self.xpt.pressed = False
                 # Go back to first interrupt handler
-                self.xpt.int_handler = None
+                self.xpt.int_handler = self.first_press
 
     def activate_keyboard(self, x, y):
         #  Setup keyboard
@@ -589,7 +588,6 @@ class TFTDisplay(object):
         # NOTE: Loop is started in the main()
 
         while True:
-            """
             if self.touchscreen_pressed is True:
                 if self.setup_screen_active is False:
                     # First setup screen
@@ -598,7 +596,7 @@ class TFTDisplay(object):
                     # Draw setup screen just once
                     # TODO: screen timeout
                     pass
-                    """
+
             if self.touchscreen_pressed is False:
                 rows, rowcolours = await self.show_time_co2_temp_screen()
                 await self.show_screen(rows, rowcolours)
@@ -757,17 +755,17 @@ class TFTDisplay(object):
     async def show_status_monitor_screen():
         row1 = "Memory free: %s" % gc.mem_free()
         row1_colour = 'black'
-        row2 = "WiFi IP: %s" % wifinet.ip_address
-        row2_colour = 'white'
-        row3 = "WiFi Strength: %s" % wifinet.wifi_strength
-        row3_colour = 'black'
-        row4 = "MHZ19B CRC errors: %s " % co2sensor.crc_errors
-        row4_colour = 'white'
-        row5 = "MHZ19B Range errors: %s" % co2sensor.range_errors
-        row5_colour = 'black'
-        row6 = "PMS7003 version %s" % pms.pms_dictionary['VERSION']
+        row2 = "WiFi connect failed: %s " % wifinet.connect_attemps_failed
+        row2_colour = 'blue'
+        row3 = "WiFi IP: %s" % wifinet.ip_address
+        row3_colour = 'blue'
+        row4 = "WiFi Strength: %s" % wifinet.wifi_strength
+        row4_colour = 'blue'
+        row5 = "MHZ19B CRC errors: %s " % co2sensor.crc_errors
+        row5_colour = 'white'
+        row6 = "MHZ19B Range errors: %s" % co2sensor.range_errors
         row6_colour = 'white'
-        row7 = " "
+        row7 = "PMS7003 version %s" % pms.pms_dictionary['VERSION']
         row7_colour = 'white'
         rows = row1, row2, row3, row4, row5, row6, row7
         row_colours = row1_colour, row2_colour, row3_colour, row4_colour, row5_colour, row6_colour, row7_colour
@@ -825,15 +823,16 @@ async def collect_carbage_and_update_status_loop():
 
 
 async def show_what_i_do():
+    # Output is REPL
     MQTTClient.DEBUG = False
 
     while True:
-        print("PMS dictionary: %s" % pms.pms_dictionary)
-        print("Air quality index: %s " % airquality.aqinndex)
-        print("CO2: %s" % co2sensor.co2_value)
-        print("Average: %s" % co2sensor.co2_average)
+        # print("PMS dictionary: %s" % pms.pms_dictionary)
+        # print("Air quality index: %s " % airquality.aqinndex)
+        # print("CO2: %s" % co2sensor.co2_value)
+        # print("Average: %s" % co2sensor.co2_average)
         print("WiFi Connected %s" % wifinet.network_connected)
-        print("Touchscreen pressed %s" % display.touchscreen_pressed)
+        print("WiFi failed connects %s" % wifinet.connect_attemps_failed)
         print("-------")
         await asyncio.sleep(1)
 
@@ -853,7 +852,7 @@ co2sensor = CO2.MHZ19bCO2(uart=CO2_SENSOR_UART, rxpin=CO2_SENSOR_RX_PIN, txpin=C
 #  If you use UART2, you have to delete object and re-create it after power on boot!
 if reset_cause() == 1:
     del co2sensor
-    utime.sleep(5)  # 2 is not enough
+    utime.sleep(5)   # 2 is not enough!
     co2sensor = CO2.MHZ19bCO2(uart=CO2_SENSOR_UART, rxpin=CO2_SENSOR_RX_PIN, txpin=CO2_SENSOR_TX_PIN)
 
 # Display and touchscreen
@@ -879,7 +878,6 @@ async def main():
     loop.create_task(collect_carbage_and_update_status_loop())  # updates alarm flags on display too
     loop.create_task(show_what_i_do())    # output REPL
     loop.create_task(display.run_display_loop())   # start display show
-    loop.create_task(display.monitor_touchscreen_status())  # toucscreen status change
     gc.collect()
 
     # loop.run_forever()
