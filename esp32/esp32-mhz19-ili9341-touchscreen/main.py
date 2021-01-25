@@ -25,6 +25,8 @@ Libraries:
 4. PMS7003_AS.py in this blob. Modified async from https://github.com/pkucmus/micropython-pms7003/blob/master/pms7003.py
    - Use 3.3V instead of 5V!
 5. AQI.py from https://github.com/pkucmus/micropython-pms7003/blob/master/aqi.py
+6. BME280 (3.3V) https://github.com/robert-hh/BME280
+
 
 !! DO NOT USE PyCharm to upload fonts or images to the ESP32! Use command ampy -p COMx directoryname instead!
    PyCharm can not handle directories in ESP32. For some reason it combines name of the directory and file to one file.
@@ -45,10 +47,12 @@ If Touchscreen works weird, check your connectors! If you use dupont-connectors,
 21.01.2020: Re-wrote network part so that it works for asynchronous setup, removed initial screen
             Re-defined colours in the TFTDisplay class again, shortens code. Free mem 35424
 22.01.2020: Re-organized parameters. Added running configuration json and added monitoring for WiFi-connection.
+25.01.2020: Memory allocation errors -> simplified code. Removed possibility to select SSID and passowrd, keyboard etc.
+            Added BME280 sensor reading.
 
 
 """
-from machine import SPI, Pin, reset, freq, reset_cause
+from machine import SPI, I2C, Pin, freq, reset_cause
 import uasyncio as asyncio
 import utime
 import gc
@@ -59,10 +63,10 @@ import webrepl
 from XPT2046 import Touch
 from ILI9341 import Display, color565
 from XGLCD_FONT import XglcdFont
-from TOUCH_KEYBOARD import TouchKeyboard
 from AQI import AQI
 import PMS7003_AS as PARTICLES
 import MHZ19B_AS as CO2
+import BME280_float as BME280
 import json
 
 
@@ -72,7 +76,7 @@ try:
     from parameters import CO2_SENSOR_RX_PIN, CO2_SENSOR_TX_PIN, CO2_SENSOR_UART, TFT_CS_PIN, TFT_DC_PIN, \
         TFT_TOUCH_MISO_PIN, TFT_TOUCH_CS_PIN, TFT_TOUCH_IRQ_PIN, TFT_TOUCH_MOSI_PIN, TFT_TOUCH_SCLK_PIN, TFT_CLK_PIN, \
         TFT_RST_PIN, TFT_MISO_PIN, TFT_MOSI_PIN, TFT_SPI, TOUCHSCREEN_SPI, \
-        PARTICLE_SENSOR_UART, PARTICLE_SENSOR_TX, PARTICLE_SENSOR_RX
+        PARTICLE_SENSOR_UART, PARTICLE_SENSOR_TX, PARTICLE_SENSOR_RX, I2C_SCL_PIN, I2C_SDA_PIN
     f.close()
 except OSError:  # open failed
     print("parameter.py-file missing! Can not continue!")
@@ -123,14 +127,7 @@ except OSError:  # open failed
     START_MQTT = 0
     SCREEN_UPDATE_INTERVAL = 5
     DEBUG_SCREEN_ACTIVE = 1
-    SCREEN_TIMEOUT = 10
-
-
-def restart_and_reconnect():
-    #  Last resort
-    print("About to reboot in 20s... ctrl + c to break")
-    utime.sleep(20)
-    reset()
+    SCREEN_TIMEOUT = 60
 
 
 def resolve_date():
@@ -151,20 +148,11 @@ def resolve_date():
     return day, time, weekdays[wday]
 
 
-async def error_reporting(error):
-    # error message: date + time;uptime;devicename;ip;error;free mem
-    errormessage = str(resolve_date()) + ";" + str(utime.ticks_ms()) + ";" \
-        + str(CLIENT_ID) + ";" + str(network.WLAN(network.STA_IF).ifconfig()) + ";" + str(error) +\
-        ";" + str(gc.mem_free())
-    # await client.publish(TOPIC_ERRORS, str(errormessage), retain=False)
-
-
 class ConnectWiFi(object):
     """ This class creates network object for WiFi-connection. Two SSIDs may be predefined. """
 
     def __init__(self):
         self.network_connected = False
-        self.predefined = False
         self.password = None
         self.use_password = None
         self.use_ssid = None
@@ -177,8 +165,10 @@ class ConnectWiFi(object):
         self.ssid_list = []
         self.mqttclient = None
         self.connect_attemps_failed = 0
+        self.startup_time = None
 
     async def network_update_loop(self):
+        # TODO: add While True
         if START_NETWORK == 1:
             await self.check_network()
             if self.network_connected is False:
@@ -206,19 +196,12 @@ class ConnectWiFi(object):
             # resolve is essid in the predefined networks presented in config
             if self.use_ssid == SSID1:
                 self.use_password = PASSWORD1
-                self.predefined = True
             elif self.use_ssid == SSID2:
                 self.use_password = PASSWORD2
-                self.predefined = True
         else:
-            # We are not connected, check if SSID1 or SSID2 is predefined
-            if (SSID1 is not None) or (SSID2 is not None):
-                self.predefined = True
-            else:
-                self.predefined = False
             self.password = None
-            self.use_password = None    # Password may be from config or from user input
-            self.use_ssid = None   # SSID to be used will be decided later even it is in the config
+            self.use_password = None
+            self.use_ssid = None
             self.network_connected = False
 
     async def start_webrepl(self):
@@ -246,19 +229,18 @@ class ConnectWiFi(object):
             try:
                 ntptime.settime()
                 self.timeset = True
+                self.startup_time = utime.time()
             except OSError as e:
                 self.timeset = False
                 return False
         await asyncio.sleep(0)
 
     async def search_wifi_networks(self):
-        # Begin with adapter reset
         network.WLAN(network.STA_IF).active(False)
         await asyncio.sleep(2)
         network.WLAN(network.STA_IF).active(True)
         await asyncio.sleep(3)
         try:
-            # Generate list of WiFi hotspots in range
             self.ssid_list = network.WLAN(network.STA_IF).scan()
             await asyncio.sleep(5)
         except self.ssid_list == []:
@@ -266,46 +248,26 @@ class ConnectWiFi(object):
             return False
         except OSError:
             return False
-        if self.predefined is True:
-            #  Network to be connected is in the config. Check if SSID1 or SSID2 is in the AP range list
-            try:
-                self.searh_list = [item for item in self.ssid_list if item[0].decode() == SSID1 or
-                                   item[0].decode() == SSID2]
-            except ValueError:
-                # SSDI not found within signal range
-                return False
-            # If both are found, select one which has highest stregth
-            if len(self.searh_list) == 2:
-                #  third from end of list is rssi
-                if self.searh_list[0][-3] > self.searh_list[1][-3]:
-                    self.use_ssid = self.searh_list[0][0].decode()
-                    self.use_password = PASSWORD1
-                    self.search_complete = True
-                else:
-                    self.use_ssid = self.searh_list[1][0].decode()
-                    self.use_password = PASSWORD2
-                    self.search_complete = True
-            else:
-                # only 1 in the list
+        try:
+            self.searh_list = [item for item in self.ssid_list if item[0].decode() == SSID1 or
+                               item[0].decode() == SSID2]
+        except ValueError:
+            return False
+        if len(self.searh_list) == 2:
+            if self.searh_list[0][-3] > self.searh_list[1][-3]:
                 self.use_ssid = self.searh_list[0][0].decode()
                 self.use_password = PASSWORD1
                 self.search_complete = True
-        if self.predefined is False:
-            #  Networks not defined in the parameters.py, let's try password to any WiFi order by signal strength
-            #  Tries empty password too
-            #  ToDo: rebuild, ask user input which hotspot we want to connect!
-            self.ssid_list.sort(key=lambda x: [x][-3])
-            if len(self.ssid_list) == 1:
-                self.use_ssid = self.ssid_list[0][0].decode()
-            elif len(self.ssid_list) > 1:
-                z = 0
-                while (network.WLAN(network.STA_IF).ifconfig()[0] == '0.0.0.0') and (z <= len(self.ssid_list)) and \
-                        (self.network_connected is False):
-                    self.use_ssid = self.ssid_list[z][0].decode()
-                    z = +1
+            else:
+                self.use_ssid = self.searh_list[1][0].decode()
+                self.use_password = PASSWORD2
+                self.search_complete = True
+        else:
+            self.use_ssid = self.searh_list[0][0].decode()
+            self.use_password = PASSWORD1
+            self.search_complete = True
 
     async def connect_to_network(self):
-        #  We know which network we should connect to
         if DHCP_NAME is not None:
             network.WLAN(network.STA_IF).config(dhcp_hostname=DHCP_NAME)
         try:
@@ -356,12 +318,16 @@ class ConnectWiFi(object):
         # await self.mqttclient.subscribe(TOPIC_OUTDOOR, 0)
 
     def update_mqtt_status(self, topic, msg, retained):
+        pass
+        """ Subscribe mqtt topics for correction multipliers and such. As an example, if
+        temperature measurement is linearly wrong +0,8C, send substraction via mqtt-topic. If measurement is 
+        not linearly wrong, pass range + correction to the topics.
         # print("Topic: %s, message %s" % (topic, msg))
-        status = int(msg)
-        if status == 1:
-            print("daa")
-        elif status == 0:
-            print("kaa")
+        Example:
+        if topic == '/device_id/temp/correction/':
+            correction = float(msg)
+            return correction
+        """
 
 
 class TFTDisplay(object):
@@ -374,7 +340,6 @@ class TFTDisplay(object):
 
         # Default fonts
         self.unispace = XglcdFont('fonts/Unispace12x24.c', 12, 24)
-        self.fixedfont = XglcdFont('fonts/FixedFont5x8.c', 5, 8, 32, 96)
         self.arcadepix = XglcdFont('fonts/ArcadePix9x11.c', 9, 11)
         self.active_font = self.unispace
 
@@ -430,185 +395,131 @@ class TFTDisplay(object):
         self.leftindent_pixels = 12
         self.diag_count = 0
         self.screen_timeout = SCREEN_TIMEOUT
-        self.keyboard = None
-        self.keyboard_show = False
-        # If all ok is False, change background color etc
         self.all_ok = True
         self.screen_update_interval = SCREEN_UPDATE_INTERVAL
-        #  To avoid duplicate screens
-        self.setup_screen_active = False
-
-    def try_to_connect(self, ssid, pwd):
-        """ Return WiFi connection status.
-        Args:
-            pwd: password for the SSID
-        Returns:
-            status of the connection.
-        """
-        status = 0
-        pass
-
-        return status
+        # TODO: perhaps async with lock?
+        self.details_screen_active = False
+        self.row_colours = None
+        self.rows = None
+        self.detail_screen_selected = None
 
     def first_press(self, x, y):
-        # First time pressed
-        print(x, y)
+        # Avoid memory issues. Slows down first access.
+        gc.collect()
         self.touchscreen_pressed = True
-        self.draw_setup_screen()
 
-    def draw_setup_screen(self):
-        """ Split screen to 4 divisions, network setup, iot setup, display setup and debug setup  """
-        # Activation timer is used to calculate timeout - cleared from screen loop!
-        self.setup_screen_active = True
+    async def draw_details_screen(self):
+        self.details_screen_active = True
         self.screen_activation_time = utime.time()
         self.active_font = self.unispace
         self.fontheight = self.active_font.height
         self.fontwidth = self.active_font.width
 
-        textbox1_1 = "Network"
+        textbox1_1 = "Particles"
         textbox1_1_mid_x = self.textbox1_x + (int(self.textbox1_w / 2) - (int((len(textbox1_1) * self.fontwidth)/2)))
         textbox1_1_mid_y = self.textbox1_y + int(self.textbox1_h/2)
-        textbox2_1 = "IOT"
+        textbox2_1 = "Averages"
         textbox2_1_mid_x = self.textbox2_x + (int(self.textbox2_w / 2) - (int((len(textbox2_1) * self.fontwidth)/2)))
         textbox2_1_mid_y = self.textbox2_y + int(self.textbox2_h/2)
-        textbox3_1 = "Display"
+        textbox3_1 = "Alarms"
         textbox3_1_mid_x = self.textbox3_x + (int(self.textbox3_w / 2) - (int((len(textbox3_1) * self.fontwidth)/2)))
         textbox3_1_mid_y = self.textbox3_y + int(self.textbox3_h/2)
-        textbox4_1 = "Debug"
+        textbox4_1 = "System"
         textbox4_1_mid_x = self.textbox4_x + (int(self.textbox4_w / 2) - (int((len(textbox4_1) * self.fontwidth)/2)))
         textbox4_1_mid_y = self.textbox4_y + int(self.textbox4_h/2)
 
-        # For network setup
         self.display.fill_rectangle(self.textbox1_x, self.textbox1_y, self.textbox1_w, self.textbox1_h,
                                     self.colours['blue'])
         self.display.draw_text(textbox1_1_mid_x, textbox1_1_mid_y, textbox1_1, self.active_font,
                                self.colours['white'], self.colours['blue'])
-        # Is network up or down?
-        if wifinet.network_connected is True:
-            self.display.draw_text(self.textbox1_x + 5, self.textbox1_y + 2, "Network UP: %s" % wifinet.ip_address,
-                                   self.fixedfont, self.colours['green'])
-        else:
-            self.display.draw_text(self.textbox1_x + 5, self.textbox1_y + 2, "Network DOWN", self.fixedfont,
-                                   self.colours['purple'])
-
-        # For IOT Setup
         self.display.fill_rectangle(self.textbox2_x, self.textbox2_y, self.textbox2_w, self.textbox2_h,
                                     self.colours['yellow'])
         self.display.draw_text(textbox2_1_mid_x, textbox2_1_mid_y, textbox2_1, self.active_font,
                                self.colours['green'], self.colours['yellow'])
-
-        # For Display setup
         self.display.fill_rectangle(self.textbox3_x, self.textbox3_y, self.textbox3_w, self.textbox3_h,
                                     self.colours['light_green'])
         self.display.draw_text(textbox3_1_mid_x, textbox3_1_mid_y, textbox3_1, self.active_font,
-                               self.colours['light_green'], self.colours['light_green'])
-
-        # For Debug setup
+                               self.colours['black'], self.colours['light_green'])
         self.display.fill_rectangle(self.textbox4_x, self.textbox4_y, self.textbox4_w, self.textbox4_h,
                                     self.colours['light_yellow'])
         self.display.draw_text(textbox4_1_mid_x, textbox4_1_mid_y, textbox4_1, self.active_font,
                                self.colours['red'], self.colours['light_yellow'])
+        self.xpt.int_handler = self.selection_box
+        await asyncio.sleep(0)
 
-        # Replace init handel to check what user choose
-        self.xpt.int_handler = self.select_setup_box
-
-    def select_setup_box(self, x, y):
-        # Init handler for setup screen
+    def selection_box(self, x, y):
         print("Print select setup %s %s" % (x, y))
-        # Check which box was pressed
         box = 0
         if (x > self.textbox1_x) and (x < self.textbox2_x):
-            # left part
             box = 13    # box 1 or 3
         elif x > self.textbox2_x:
-            # right part
             box = 24    # box 2 or 4
         if box == 13:
             if y > self.textbox3_h:
-                print("IOT chosen")
+                print("Particles")
+                self.detail_screen_selected = "Particles"
             else:
-                print("Network chosen")
+                self.detail_screen_selected = "Alarms"
+                print("Alarms")
         if box == 24:
             if y > self.textbox4_h:
-                print("Debug chosen")
+                print("System")
+                self.detail_screen_selected = "System"
             else:
-                print("Display chosen")
-                # Go back to first interrupt handler
-                self.xpt.int_handler = self.first_press
-
-    def activate_keyboard(self, x, y):
-        #  Setup keyboard
-        self.keyboard = TouchKeyboard(self.display, self.unispace)
-        self.keyboard_show = True
-
-        """Process touchscreen press events. Disable debug if you do not want to see green circle on the keyboard """
-        # TODO: Capture characters and enter
-        if self.keyboard.handle_keypress(x, y, debug=False) is True:
-            self.keyboard.locked = True
-            pwd = self.keyboard.kb_text
-            self.keyboard.show_message("Type password", color565(0, 0, 255))
-            try:
-                status = self.try_to_connect(pwd)
-                if status:
-                    # Connection established
-                    msg = "Connection established!: {0}".format(status)
-                    self.keyboard.show_message(msg, color565(255, 0, 0))
-                else:
-                    # Connection not established
-                    msg = "No connection. Try another password!"
-                    self.keyboard.show_message(msg, color565(0, 255, 0))
-            except Exception as e:
-                if hasattr(e, 'message'):
-                    self.keyboard.show_message(e.message[:22],
-                                               color565(255, 255, 255))
-                else:
-                    self.keyboard.show_message(str(e)[:22],
-                                               color565(255, 255, 255))
-            self.keyboard.waiting = True
-            self.keyboard.locked = False
-            self.keyboard_show = False
+                print("Averages")
+                self.detail_screen_selected = "Averages"
 
     async def row_by_row_text(self, message, color):
-        self.active_font = self.arcadepix
+        self.screen_activation_time = utime.time()
         self.fontheight = self.active_font.height
-        self.rowheight = self.fontheight + 2  # 2 pixel space between rows
-        self.display.draw_text(5, self.rowheight * self.rownumber, message, self.arcadepix, self.colours[color])
-        self.rownumber += 1
+        self.rowheight = self.fontheight + 2
+        characters_per_screen = (self.active_font.width - self.leftindent_pixels) / self.active_font.width
+        if len(message) > characters_per_screen:
+            self.display.draw_text(self.leftindent_pixels, self.rowheight * self.rownumber,
+                                   message[:characters_per_screen], self.active_font, self.colours[color])
+            self.rownumber += 1
+        else:
+            self.display.draw_text(self.leftindent_pixels, self.rowheight * self.rownumber,
+                                   message, self.active_font, self.colours[color])
+            self.rownumber += 1
         if self.rownumber >= self.maxrows:
             utime.sleep(self.screen_update_interval)
             # TODO: scrolling screen!
-            # self.display.cleanup()
             self.rownumber = 1
         await asyncio.sleep(0)
 
     async def run_display_loop(self):
-        # TODO: Initial welcome screen?
         gc.collect()
 
         # NOTE: Loop is started in the main()
 
         while True:
+
             if self.touchscreen_pressed is True:
-                if self.setup_screen_active is False:
-                    # First setup screen
-                    self.draw_setup_screen()
-                else:
-                    # Draw setup screen just once
-                    # TODO: screen timeout
-                    pass
+                if self.details_screen_active is False:
+                    await self.draw_details_screen()
+                elif (self.details_screen_active is True) and \
+                        ((utime.time() - self.screen_activation_time) > self.screen_timeout):
+                    # Timeout
+                    self.details_screen_active = False
+                    self.touchscreen_pressed = False
+            elif (self.details_screen_active is True) and (self.details_screen_active == "Particles"):
+                rows, row_colours = await self.show_particle_screen()
+                await self.show_screen(rows, row_colours)
+            elif (self.details_screen_active is True) and (self.details_screen_active == "Averages"):
+                self.details_screen_active = False
+                self.touchscreen_pressed = False
+                self.xpt.int_handler = self.first_press
+            elif (self.details_screen_active is True) and (self.details_screen_active == "System"):
+                rows, row_colours = await self.show_status_monitor_screen()
+                await self.show_screen(rows, row_colours)
+            elif (self.details_screen_active is True) and (self.details_screen_active == "Alarms"):
+                pass
+            else:
+                rows, row_colours = await self.update_welcome_screen()
+                await self.show_screen(rows, row_colours)
 
-            if self.touchscreen_pressed is False:
-                rows, rowcolours = await self.show_time_co2_temp_screen()
-                await self.show_screen(rows, rowcolours)
-            if self.touchscreen_pressed is False:
-                rows, rowcolours = await self.show_particle_screen()
-                await self.show_screen(rows, rowcolours)
-            if self.touchscreen_pressed is False:
-                rows, rowcolours = await self.show_status_monitor_screen()
-                await self.show_screen(rows, rowcolours)
-            await asyncio.sleep_ms(0)
-
-    async def show_screen(self, rows, rowcolours):
+    async def show_screen(self, rows, row_colours):
         row1 = "Airquality 0.02"
         row1_colour = 'white'
         row2 = "."
@@ -627,9 +538,8 @@ class TFTDisplay(object):
         if rows is not None:
             if len(rows) == 7:
                 row1, row2, row3, row4, row5, row6, row7 = rows
-            if len(rowcolours) == 7:
-                row1_colour, row2_colour, row3_colour, row4_colour, row5_colour, row6_colour, row7_colour = rowcolours
-
+            if len(row_colours) == 7:
+                row1_colour, row2_colour, row3_colour, row4_colour, row5_colour, row6_colour, row7_colour = row_colours
         if self.all_ok is True:
             await self.draw_all_ok_background()
         else:
@@ -665,7 +575,7 @@ class TFTDisplay(object):
         self.colour_background = 'orange'
 
     @staticmethod
-    async def show_time_co2_temp_screen():
+    async def update_welcome_screen():
         row1 = "%s %s" % (resolve_date()[0], resolve_date()[1])
         row1_colour = 'white'
         row2 = "Today is %s " % resolve_date()[2]
@@ -687,11 +597,11 @@ class TFTDisplay(object):
         else:
             row4 = "Air Quality Index: %s" % ("{:.1f}".format(airquality.aqinndex))
             row4_colour = 'black'
-        row5 = "Temp: "
+        row5 = "Temp: %s" % bmesensor.values[0]
         row5_colour = 'yellow'
-        row6 = "Rh: "
+        row6 = "Rh: %s" % bmesensor.values[1]
         row6_colour = 'yellow'
-        row7 = "Pressure: "
+        row7 = "Pressure: %s " % bmesensor.values[2]
         row7_colour = 'yellow'
         rows = row1, row2, row3, row4, row5, row6, row7
         row_colours = row1_colour, row2_colour, row3_colour, row4_colour, row5_colour, row6_colour, row7_colour
@@ -755,7 +665,7 @@ class TFTDisplay(object):
     async def show_status_monitor_screen():
         row1 = "Memory free: %s" % gc.mem_free()
         row1_colour = 'black'
-        row2 = "WiFi connect failed: %s " % wifinet.connect_attemps_failed
+        row2 = "Uptime: %s" % (utime.time() - wifinet.startup_time)
         row2_colour = 'blue'
         row3 = "WiFi IP: %s" % wifinet.ip_address
         row3_colour = 'blue'
@@ -831,8 +741,10 @@ async def show_what_i_do():
         # print("Air quality index: %s " % airquality.aqinndex)
         # print("CO2: %s" % co2sensor.co2_value)
         # print("Average: %s" % co2sensor.co2_average)
-        print("WiFi Connected %s" % wifinet.network_connected)
-        print("WiFi failed connects %s" % wifinet.connect_attemps_failed)
+        # print("WiFi Connected %s" % wifinet.network_connected)
+        # print("WiFi failed connects %s" % wifinet.connect_attemps_failed)
+        print("Toucscreen pressed: %s" % display.touchscreen_pressed)
+        print("Details screen active: %s" % display.details_screen_active)
         print("-------")
         await asyncio.sleep(1)
 
@@ -848,6 +760,8 @@ pms = PARTICLES.PSensorPMS7003(uart=PARTICLE_SENSOR_UART, rxpin=PARTICLE_SENSOR_
 airquality = AirQuality(pms)
 # CO2 sensor
 co2sensor = CO2.MHZ19bCO2(uart=CO2_SENSOR_UART, rxpin=CO2_SENSOR_RX_PIN, txpin=CO2_SENSOR_TX_PIN)
+i2c = I2C(scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN))
+bmesensor = BME280.BME280(i2c=i2c)
 
 #  If you use UART2, you have to delete object and re-create it after power on boot!
 if reset_cause() == 1:
