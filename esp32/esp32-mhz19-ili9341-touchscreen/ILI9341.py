@@ -1,5 +1,6 @@
 # Source https://github.com/rdagger/micropython-ili9341/blob/master/ili9341.py
 # Jari Hiltunen 20.01.2020 from micropython import const, is more or less cosmetic change
+# Removed a few subs to save memory
 
 """ILI9341 LCD/Touch module."""
 from time import sleep
@@ -104,22 +105,12 @@ class Display(object):
             raise RuntimeError('Rotation must be 0, 90, 180 or 270.')
         else:
             self.rotation = self.ROTATE[rotation]
-
-        # Initialize GPIO pins and set implementation specific methods
-        if implementation.name == 'circuitpython':
-            self.cs.switch_to_output(value=True)
-            self.dc.switch_to_output(value=False)
-            self.rst.switch_to_output(value=True)
-            self.reset = self.reset_cpy
-            self.write_cmd = self.write_cmd_cpy
-            self.write_data = self.write_data_cpy
-        else:
-            self.cs.init(self.cs.OUT, value=1)
-            self.dc.init(self.dc.OUT, value=0)
-            self.rst.init(self.rst.OUT, value=1)
-            self.reset = self.reset_mpy
-            self.write_cmd = self.write_cmd_mpy
-            self.write_data = self.write_data_mpy
+        self.cs.init(self.cs.OUT, value=1)
+        self.dc.init(self.dc.OUT, value=0)
+        self.rst.init(self.rst.OUT, value=1)
+        self.reset = self.reset_mpy
+        self.write_cmd = self.write_cmd_mpy
+        self.write_data = self.write_data_mpy
         self.reset()
         # Send initialization commands
         self.write_cmd(self.SWRESET)  # Software reset
@@ -188,16 +179,6 @@ class Display(object):
         for y in range(0, h, 8):
             self.block(0, y, w - 1, y + 7, line)
 
-    def contrast(self, level):
-        """Set display contrast to specified level.
-        Args:
-            level (int): Contrast level (0 - 15).
-        Note:
-            Can pass list to specifiy
-        """
-        assert(0 <= level < 16)
-        self.write_cmd(self.CONTRAST_MASTER, level)
-
     def display_off(self):
         """Turn display off."""
         self.write_cmd(self.DISPLAY_OFF)
@@ -205,98 +186,6 @@ class Display(object):
     def display_on(self):
         """Turn display on."""
         self.write_cmd(self.DISPLAY_ON)
-
-    def draw_circle(self, x0, y0, r, color):
-        """Draw a circle.
-        Args:
-            x0 (int): X coordinate of center point.
-            y0 (int): Y coordinate of center point.
-            r (int): Radius.
-            color (int): RGB565 color value.
-        """
-        f = 1 - r
-        dx = 1
-        dy = -r - r
-        x = 0
-        y = r
-        self.draw_pixel(x0, y0 + r, color)
-        self.draw_pixel(x0, y0 - r, color)
-        self.draw_pixel(x0 + r, y0, color)
-        self.draw_pixel(x0 - r, y0, color)
-        while x < y:
-            if f >= 0:
-                y -= 1
-                dy += 2
-                f += dy
-            x += 1
-            dx += 2
-            f += dx
-            self.draw_pixel(x0 + x, y0 + y, color)
-            self.draw_pixel(x0 - x, y0 + y, color)
-            self.draw_pixel(x0 + x, y0 - y, color)
-            self.draw_pixel(x0 - x, y0 - y, color)
-            self.draw_pixel(x0 + y, y0 + x, color)
-            self.draw_pixel(x0 - y, y0 + x, color)
-            self.draw_pixel(x0 + y, y0 - x, color)
-            self.draw_pixel(x0 - y, y0 - x, color)
-
-    def draw_ellipse(self, x0, y0, a, b, color):
-        """Draw an ellipse.
-        Args:
-            x0, y0 (int): Coordinates of center point.
-            a (int): Semi axis horizontal.
-            b (int): Semi axis vertical.
-            color (int): RGB565 color value.
-        Note:
-            The center point is the center of the x0,y0 pixel.
-            Since pixels are not divisible, the axes are integer rounded
-            up to complete on a full pixel.  Therefore the major and
-            minor axes are increased by 1.
-        """
-        a2 = a * a
-        b2 = b * b
-        twoa2 = a2 + a2
-        twob2 = b2 + b2
-        x = 0
-        y = b
-        px = 0
-        py = twoa2 * y
-        # Plot initial points
-        self.draw_pixel(x0 + x, y0 + y, color)
-        self.draw_pixel(x0 - x, y0 + y, color)
-        self.draw_pixel(x0 + x, y0 - y, color)
-        self.draw_pixel(x0 - x, y0 - y, color)
-        # Region 1
-        p = round(b2 - (a2 * b) + (0.25 * a2))
-        while px < py:
-            x += 1
-            px += twob2
-            if p < 0:
-                p += b2 + px
-            else:
-                y -= 1
-                py -= twoa2
-                p += b2 + px - py
-            self.draw_pixel(x0 + x, y0 + y, color)
-            self.draw_pixel(x0 - x, y0 + y, color)
-            self.draw_pixel(x0 + x, y0 - y, color)
-            self.draw_pixel(x0 - x, y0 - y, color)
-        # Region 2
-        p = round(b2 * (x + 0.5) * (x + 0.5) +
-                  a2 * (y - 1) * (y - 1) - a2 * b2)
-        while y > 0:
-            y -= 1
-            py -= twoa2
-            if p > 0:
-                p += a2 - py
-            else:
-                x += 1
-                px += twob2
-                p += a2 - py + px
-            self.draw_pixel(x0 + x, y0 + y, color)
-            self.draw_pixel(x0 - x, y0 + y, color)
-            self.draw_pixel(x0 + x, y0 - y, color)
-            self.draw_pixel(x0 - x, y0 - y, color)
 
     def draw_hline(self, x, y, w, color):
         """Draw a horizontal line.
@@ -310,37 +199,6 @@ class Display(object):
             return
         line = color.to_bytes(2, 'big') * w
         self.block(x, y, x + w - 1, y, line)
-
-    def draw_image(self, path, x=0, y=0, w=320, h=240):
-        """Draw image from flash.
-        Args:
-            path (string): Image file path.
-            x (int): X coordinate of image left.  Default is 0.
-            y (int): Y coordinate of image top.  Default is 0.
-            w (int): Width of image.  Default is 320.
-            h (int): Height of image.  Default is 240.
-        """
-        x2 = x + w - 1
-        y2 = y + h - 1
-        if self.is_off_grid(x, y, x2, y2):
-            return
-        with open(path, "rb") as f:
-            chunk_height = 1024 // w
-            chunk_count, remainder = divmod(h, chunk_height)
-            chunk_size = chunk_height * w * 2
-            chunk_y = y
-            if chunk_count:
-                for c in range(0, chunk_count):
-                    buf = f.read(chunk_size)
-                    self.block(x, chunk_y,
-                               x2, chunk_y + chunk_height - 1,
-                               buf)
-                    chunk_y += chunk_height
-            if remainder:
-                buf = f.read(remainder * w * 2)
-                self.block(x, chunk_y,
-                           x2, chunk_y + remainder - 1,
-                           buf)
 
     def draw_letter(self, x, y, letter, font, color, background=0,
                     landscape=False):
@@ -453,29 +311,6 @@ class Display(object):
             return
         self.block(x, y, x, y, color.to_bytes(2, 'big'))
 
-    def draw_polygon(self, sides, x0, y0, r, color, rotate=0):
-        """Draw an n-sided regular polygon.
-        Args:
-            sides (int): Number of polygon sides.
-            x0, y0 (int): Coordinates of center point.
-            r (int): Radius.
-            color (int): RGB565 color value.
-            rotate (Optional float): Rotation in degrees relative to origin.
-        Note:
-            The center point is the center of the x0,y0 pixel.
-            Since pixels are not divisible, the radius is integer rounded
-            up to complete on a full pixel.  Therefore diameter = 2 x r + 1.
-        """
-        coords = []
-        theta = radians(rotate)
-        n = sides + 1
-        for s in range(n):
-            t = 2.0 * pi * s / sides + theta
-            coords.append([int(r * cos(t) + x0), int(r * sin(t) + y0)])
-
-        # Cast to python float first to fix rounding errors
-        self.draw_lines(coords, color=color)
-
     def draw_rectangle(self, x, y, w, h, color):
         """Draw a rectangle.
         Args:
@@ -491,21 +326,6 @@ class Display(object):
         self.draw_hline(x, y2, w, color)
         self.draw_vline(x, y, h, color)
         self.draw_vline(x2, y, h, color)
-
-    def draw_sprite(self, buf, x, y, w, h):
-        """Draw a sprite (optimized for horizontal drawing).
-        Args:
-            buf (bytearray): Buffer to draw.
-            x (int): Starting X position.
-            y (int): Starting Y position.
-            w (int): Width of drawing.
-            h (int): Height of drawing.
-        """
-        x2 = x + w - 1
-        y2 = y + h - 1
-        if self.is_off_grid(x, y, x2, y2):
-            return
-        self.block(x, y, x2, y2, buf)
 
     def draw_text(self, x, y, text, font, color,  background=0,
                   landscape=False, spacing=1):
@@ -561,84 +381,6 @@ class Display(object):
             return
         line = color.to_bytes(2, 'big') * h
         self.block(x, y, x, y + h - 1, line)
-
-    def fill_circle(self, x0, y0, r, color):
-        """Draw a filled circle.
-        Args:
-            x0 (int): X coordinate of center point.
-            y0 (int): Y coordinate of center point.
-            r (int): Radius.
-            color (int): RGB565 color value.
-        """
-        f = 1 - r
-        dx = 1
-        dy = -r - r
-        x = 0
-        y = r
-        self.draw_vline(x0, y0 - r, 2 * r + 1, color)
-        while x < y:
-            if f >= 0:
-                y -= 1
-                dy += 2
-                f += dy
-            x += 1
-            dx += 2
-            f += dx
-            self.draw_vline(x0 + x, y0 - y, 2 * y + 1, color)
-            self.draw_vline(x0 - x, y0 - y, 2 * y + 1, color)
-            self.draw_vline(x0 - y, y0 - x, 2 * x + 1, color)
-            self.draw_vline(x0 + y, y0 - x, 2 * x + 1, color)
-
-    def fill_ellipse(self, x0, y0, a, b, color):
-        """Draw a filled ellipse.
-        Args:
-            x0, y0 (int): Coordinates of center point.
-            a (int): Semi axis horizontal.
-            b (int): Semi axis vertical.
-            color (int): RGB565 color value.
-        Note:
-            The center point is the center of the x0,y0 pixel.
-            Since pixels are not divisible, the axes are integer rounded
-            up to complete on a full pixel.  Therefore the major and
-            minor axes are increased by 1.
-        """
-        a2 = a * a
-        b2 = b * b
-        twoa2 = a2 + a2
-        twob2 = b2 + b2
-        x = 0
-        y = b
-        px = 0
-        py = twoa2 * y
-        # Plot initial points
-        self.draw_line(x0, y0 - y, x0, y0 + y, color)
-        # Region 1
-        p = round(b2 - (a2 * b) + (0.25 * a2))
-        while px < py:
-            x += 1
-            px += twob2
-            if p < 0:
-                p += b2 + px
-            else:
-                y -= 1
-                py -= twoa2
-                p += b2 + px - py
-            self.draw_line(x0 + x, y0 - y, x0 + x, y0 + y, color)
-            self.draw_line(x0 - x, y0 - y, x0 - x, y0 + y, color)
-        # Region 2
-        p = round(b2 * (x + 0.5) * (x + 0.5) +
-                  a2 * (y - 1) * (y - 1) - a2 * b2)
-        while y > 0:
-            y -= 1
-            py -= twoa2
-            if p > 0:
-                p += a2 - py
-            else:
-                x += 1
-                px += twob2
-                p += a2 - py + px
-            self.draw_line(x0 + x, y0 - y, x0 + x, y0 + y, color)
-            self.draw_line(x0 - x, y0 - y, x0 - x, y0 + y, color)
 
     def fill_hrect(self, x, y, w, h, color):
         """Draw a filled rectangle (optimized for horizontal drawing).
@@ -820,19 +562,6 @@ class Display(object):
                 ymax, self.height - 1))
             return True
         return False
-
-    def load_sprite(self, path, w, h):
-        """Load sprite image.
-        Args:
-            path (string): Image file path.
-            w (int): Width of image.
-            h (int): Height of image.
-        Notes:
-            w x h cannot exceed 2048
-        """
-        buf_size = w * h * 2
-        with open(path, "rb") as f:
-            return f.read(buf_size)
 
     def reset_cpy(self):
         """Perform reset: Low=initialization, High=normal operation.
