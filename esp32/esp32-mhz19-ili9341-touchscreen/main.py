@@ -2,13 +2,13 @@
 This script is used for airquality measurement. Display is ILI9341 2.8" TFT touch screen in the SPI bus,
 CO2 device is MH-Z19 NDIR-sensor, particle sensor is PMS7003 and temperature/rh/pressure sensor BME280.
 
-Draft code. Removed comments and refactorer variable names to save memory!
+Draft code. Removed comments and refactored variablenames to save memory!
 
 Updated: 26.01.2020: Jari Hiltunen
 """
-from machine import SPI, I2C, Pin, freq, reset_cause
+from machine import SPI, I2C, Pin, freq, reset, reset_cause
 import uasyncio as asyncio
-import utime
+from utime import time, mktime, localtime, sleep
 import gc
 from MQTT_AS import MQTTClient, config
 import network
@@ -21,7 +21,7 @@ from AQI import AQI
 import PMS7003_AS as PARTICLES
 import MHZ19B_AS as CO2
 import BME280_float as BmE
-import json
+from json import load
 
 
 try:
@@ -38,7 +38,7 @@ except OSError:  # open failed
 try:
     f = open('runtimeconfig.json', 'r')
     with open('runtimeconfig.json') as config_file:
-        data = json.load(config_file)
+        data = load(config_file)
         f.close()
         SSID1 = data['SSID1']
         SSID2 = data['SSID2']
@@ -88,21 +88,21 @@ try:
 
 except OSError:
     print("Runtime parameters missing. Can not continue!")
-    utime.sleep(30)
+    sleep(30)
     raise
 
 
 def resolve_date():
-    (year, month, mdate, hour, minute, second, wday, yday) = utime.localtime()
+    (year, month, mdate, hour, minute, second, wday, yday) = localtime()
     weekdays = ['Ma', 'Ti', 'Ke', 'To', 'Pe', 'La', 'Su']
-    summer_march = utime.mktime((year, 3, (14 - (int(5 * year / 4 + 1)) % 7), 1, 0, 0, 0, 0, 0))
-    winter_december = utime.mktime((year, 10, (7 - (int(5 * year / 4 + 1)) % 7), 1, 0, 0, 0, 0, 0))
-    if utime.mktime(utime.localtime()) < summer_march:
-        dst = utime.localtime(utime.mktime(utime.localtime()) + 7200)
-    elif utime.mktime(utime.localtime()) < winter_december:
-        dst = utime.localtime(utime.mktime(utime.localtime()) + 7200)
+    summer_march = mktime((year, 3, (14 - (int(5 * year / 4 + 1)) % 7), 1, 0, 0, 0, 0, 0))
+    winter_december = mktime((year, 10, (7 - (int(5 * year / 4 + 1)) % 7), 1, 0, 0, 0, 0, 0))
+    if mktime(localtime()) < summer_march:
+        dst = localtime(mktime(localtime()) + 7200)
+    elif mktime(localtime()) < winter_december:
+        dst = localtime(mktime(localtime()) + 7200)
     else:
-        dst = utime.localtime(utime.mktime(utime.localtime()) + 10800)
+        dst = localtime(mktime(localtime()) + 10800)
     (year, month, mdate, hour, minute, second, wday, yday) = dst
     day = "%s.%s.%s" % (mdate, month, year)
     time = "%s:%s:%s" % ("{:02d}".format(hour), "{:02d}".format(minute), "{:02d}".format(second))
@@ -127,23 +127,23 @@ class ConnectWiFi(object):
         self.con_att_fail = 0
         self.startup_time = None
 
-    async def network_update_loop(self):
-        # TODO: add While True
-        if START_NETWORK == 1:
-            await self.c_net()
-            if self.net_ok is False:
-                await self.s_nets()
-                if (self.s_comp is True) and (self.con_att_fail <= 20):
-                    await self.connect_to_network()
-                    if self.con_att_fail > 20:
-                        # Give up
-                        return False
-        if self.net_ok is True:
-            if self.timeset is False:
-                await self.set_time()
-            if self.webrepl_started is False:
-                await self.start_webrepl()
-        await asyncio.sleep(5)
+    async def net_upd_loop(self):
+        while True:
+            if START_NETWORK == 1:
+                await self.c_net()
+                if self.net_ok is False:
+                    await self.s_nets()
+                    if (self.s_comp is True) and (self.con_att_fail <= 20):
+                        await self.connect_to_network()
+                        if self.con_att_fail > 20:
+                            # Give up
+                            return False
+            if self.net_ok is True:
+                if self.timeset is False:
+                    await self.set_time()
+                if self.webrepl_started is False:
+                    await self.start_webrepl()
+            await asyncio.sleep(5)
 
     async def c_net(self):
         if network.WLAN(network.STA_IF).config('essid') != '':
@@ -189,7 +189,7 @@ class ConnectWiFi(object):
             try:
                 ntptime.settime()
                 self.timeset = True
-                self.startup_time = utime.time()
+                self.startup_time = time()
             except OSError as e:
                 self.timeset = False
                 return False
@@ -297,12 +297,8 @@ class TFTDisplay(object):
         # Display - some digitizers may be rotated 270 degrees!
         self.d = Display(spi=dispspi, cs=Pin(TFT_CS_PIN), dc=Pin(TFT_DC_PIN), rst=Pin(TFT_RST_PIN),
                          width=320, height=240, rotation=90)
-
-        # Default fonts
         self.unispace = XglcdFont('fonts/Unispace12x24.c', 12, 24)
-        self.arcadepix = XglcdFont('fonts/ArcadePix9x11.c', 9, 11)
         self.a_font = self.unispace
-
         self.cols = {'red': color565(255, 0, 0), 'green': color565(0, 255, 0), 'blue': color565(0, 0, 255),
                      'yellow': color565(255, 255, 0), 'fuschia': color565(255, 0, 255),
                      'aqua': color565(0, 255, 255), 'maroon': color565(128, 0, 0),
@@ -315,11 +311,8 @@ class TFTDisplay(object):
                      'pink': color565(255, 128, 255), 'light_yellow': color565(255, 255, 128),
                      'light_coral': color565(255, 128, 128), 'light_green': color565(128, 255, 128),
                      'white': color565(255, 255, 255), 'black': color565(0, 0, 0)}
-
         self.c_fnts = 'white'
         self.col_bckg = 'light_green'
-
-        # Touchscreen
         self.xpt = Touch(spi=touchspi, cs=Pin(TS_CS_PIN), int_pin=Pin(TS_IRQ_PIN),
                          width=240, height=320, x_min=100, x_max=1962, y_min=100, y_max=1900)
         self.xpt.int_handler = self.first_touch
@@ -340,7 +333,6 @@ class TFTDisplay(object):
         self.dtl_scr_sel = None
 
     def first_touch(self, x, y):
-        gc.collect()
         self.t_tched = True
 
     async def rot_scr(self):
@@ -354,22 +346,19 @@ class TFTDisplay(object):
 
     async def disp_loop(self):
 
-        # NOTE: Loop is started in the main()
-
         while True:
 
             if self.t_tched is True:
                 if self.d_scr_active is False:
                     await self.rot_scr()
                 elif (self.d_scr_active is True) and \
-                        ((utime.time() - self.scr_actv_time) > self.scr_tout):
+                        ((time() - self.scr_actv_time) > self.scr_tout):
                     # Timeout
                     self.d_scr_active = False
                     self.t_tched = False
             else:
                 r, r_c = await self.upd_welcome()
                 await self.show_screen(r, r_c)
-                gc.collect()
 
     async def show_screen(self, rows, row_colours):
         r1 = "Airquality 0.02"
@@ -473,7 +462,7 @@ class TFTDisplay(object):
                 r6_c = 'red'
             else:
                 r6_c = 'blue'
-        r7 = "Touch screen for details"
+        r7 = "Touch and wait details"
         r7_c = 'white'
         rows = r1, r2, r3, r4, r5, r6, r7
         row_colours = r1_c, r2_c, r3_c, r4_c, r5_c, r6_c, r7_c
@@ -535,7 +524,7 @@ class TFTDisplay(object):
     async def status_monitor():
         row1 = "Memory free: %s" % gc.mem_free()
         row1_colour = 'black'
-        row2 = "Uptime: %s" % (utime.time() - net.startup_time)
+        row2 = "Uptime: %s" % (time() - net.startup_time)
         row2_colour = 'blue'
         row3 = "WiFi IP: %s" % net.ip_a
         row3_colour = 'blue'
@@ -563,7 +552,7 @@ class AirQuality(object):
     def __init__(self, pmssensor):
         self.aqinndex = None
         self.pms = pmssensor
-        self.upd_ival = 5
+        self.upd_ival = pms.read_interval + 1
 
     async def upd_aq_loop(self):
         while True:
@@ -585,32 +574,33 @@ async def upd_status_loop():
         # For sensors tresholds, background change
         if co2s.co2_average is not None:
             if co2s.co2_average > CO2_ALM_THOLD:
-                display.d_all_ok = False
+                disp.d_all_ok = False
             elif co2s.co2_average <= CO2_ALM_THOLD:
-                display.d_all_ok = True
+                disp.d_all_ok = True
         if aq.aqinndex is not None:
             if aq.aqinndex > AQ_THOLD:
-                display.d_all_ok = False
+                disp.d_all_ok = False
             elif aq.aqinndex <= AQ_THOLD:
-                display.d_all_ok = True
+                disp.d_all_ok = True
         if bmes.values[0] is not None:
             if float(bmes.values[0][:-1]) > TEMP_THOLD:
-                display.d_all_ok = False
+                disp.d_all_ok = False
             else:
-                display.d_all_ok = True
+                disp.d_all_ok = True
         if bmes.values[2] is not None:
             if float(bmes.values[2][:-1]) > RH_THOLD:
-                display.d_all_ok = False
+                disp.d_all_ok = False
             else:
-                display.d_all_ok = True
+                disp.d_all_ok = True
         if bmes.values[1] is not None:
             if float(bmes.values[1][:-3]) > P_THOLD:
-                display.d_all_ok = False
+                disp.d_all_ok = False
             else:
-                display.d_all_ok = True
+                disp.d_all_ok = True
         else:
-            display.d_all_ok = True
-        await asyncio.sleep(display.scr_upd_ival - 2)
+            disp.d_all_ok = True
+        gc.collect()
+        await asyncio.sleep(disp.scr_upd_ival - 2)
 
 
 async def show_what_i_do():
@@ -625,14 +615,15 @@ async def show_what_i_do():
         # print("WiFi Connected %s" % wifinet.network_connected)
         # print("WiFi failed connects %s" % wifinet.connect_attemps_failed)
         print("Memory free: %s" % gc.mem_free())
-        print("Toucscreen pressed: %s" % display.t_tched)
-        print("Details screen active: %s" % display.d_scr_active)
+        print("Memory alloc: %s" % gc.mem_alloc())
+        print("Toucscreen pressed: %s" % disp.t_tched)
+        print("Details screen active: %s" % disp.d_scr_active)
         print("-------")
         await asyncio.sleep(1)
 
 
 # Kick in some speed, max 240000000, normal 160000000, min with WiFi 80000000
-# freq(240000000)
+freq(240000000)
 
 net = ConnectWiFi()
 
@@ -648,28 +639,31 @@ bmes = BmE.BME280(i2c=i2c)
 #  If you use UART2, you have to delete object and re-create it after power on boot!
 if reset_cause() == 1:
     del co2s
-    utime.sleep(5)   # 2 is not enough!
+    sleep(5)   # 2 is not enough!
     co2s = CO2.MHZ19bCO2(uart=CO2_SEN_UART, rxpin=CO2_SEN_RX_PIN, txpin=CO2_SEN_TX_PIN)
 t_spi = SPI(TS_SPI)  # HSPI
 t_spi.init(baudrate=1100000, sck=Pin(TS_SCLK_PIN), mosi=Pin(TS_MOSI_PIN),
            miso=Pin(TS_MISO_PIN))
 d_spi = SPI(TFT_SPI)  # VSPI - baudrate 40 - 90 MHz appears to be working, screen update still slow
 d_spi.init(baudrate=40000000, sck=Pin(TFT_CLK_PIN), mosi=Pin(TFT_MOSI_PIN), miso=Pin(TFT_MISO_PIN))
-display = TFTDisplay(t_spi, d_spi)
+disp = TFTDisplay(t_spi, d_spi)
 
 
 async def main():
     loop = asyncio.get_event_loop()
-    loop.create_task(net.network_update_loop())
+    loop.create_task(net.net_upd_loop())
     loop.create_task(pms.read_async_loop())
     loop.create_task(co2s.read_co2_loop())
     loop.create_task(aq.upd_aq_loop())
     loop.create_task(upd_status_loop())
     if DEBUG_SCREEN_ACTIVE == 1:
         loop.create_task(show_what_i_do())
-    loop.create_task(display.disp_loop())
+    loop.create_task(disp.disp_loop())
     loop.run_forever()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except MemoryError:
+        reset()
