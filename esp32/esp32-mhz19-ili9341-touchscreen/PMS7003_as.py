@@ -3,7 +3,7 @@
 
   Original https://github.com/pkucmus/micropython-pms7003/blob/master/pms7003.py
   Modified for asyncronous StreamReader  16.01.2020 by Divergentti / Jari Hiltunen
-  
+
   Add loop into your code loop.create_task(objectname.read_async_loop())
 
 """
@@ -39,7 +39,8 @@ class PSensorPMS7003:
     def __init__(self, rxpin=32, txpin=33, uart=1):
         self.sensor = UART(uart, baudrate=9600, bits=8, parity=None, stop=1, rx=rxpin, tx=txpin)
         self.pms_dictionary = None
-        self.startup_time = utime.time()   # TODO: implement 30 s wait prior to reading
+        self.startup_time = utime.time()
+        self.read_interval = 30
 
     async def reader(self, chars):
         port = asyncio.StreamReader(self.sensor)
@@ -94,3 +95,5 @@ class PSensorPMS7003:
                 'VERSION': data[PSensorPMS7003.PMS_VERSION],
                 'ERROR': data[PSensorPMS7003.PMS_ERROR],
                 'CHECKSUM': data[PSensorPMS7003.PMS_CHECKSUM], }
+
+            await asyncio.sleep(self.read_interval)
