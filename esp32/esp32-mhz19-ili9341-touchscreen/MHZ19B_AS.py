@@ -37,7 +37,7 @@ class MHZ19bCO2:
         self.crc_errors = 0
         self.range_errors = 0
         self.measuring_range = '0_5000'  # default
-        self.preheat_time = 189   # shall be 180 or more, during testing you can use these values
+        self.preheat_time = 189   # shall be 180 or more, during testing you can use 10 seconds
         self.read_interval = 120  # shall be 120 or more
         self.READ_COMMAND = bytearray(b'\xFF\x01\x86\x00\x00\x00\x00\x00\x79')
         self.CALIBRATE_ZEROPOINT = bytearray(b'\xFF\x01\x87\x00\x00\x00\x00\x00\x78')
