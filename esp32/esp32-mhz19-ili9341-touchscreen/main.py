@@ -22,6 +22,7 @@ Libraries:
    - Use 5V
 3. ILI9341 display, touchscreen, fonts and keyboard https://github.com/rdagger/micropython-ili9341
    You may drive display LED from GPIO if display has transistor in the LED pin. Otherwise connect LED to 3.3V
+   2.8" display has SD-slot as well, but it is not connected
 4. PMS7003_AS.py in this blob. Modified async from https://github.com/pkucmus/micropython-pms7003/blob/master/pms7003.py
    - Use 3.3V instead of 5V!
 5. AQI.py from https://github.com/pkucmus/micropython-pms7003/blob/master/aqi.py
@@ -33,7 +34,7 @@ Libraries:
 
 If Touchscreen works weird, check your connectors! If you use dupont-connectors, throw them away after first use!
 
-13.01.2020: Jari Hiltunen
+13.01.2020: First draft Jari Hiltunen
 14.01.2020: Network part shall be ok if parameters.py used and communicates with the display.
 15.01.2020: Added some welcome stuff and fixed SPI buss speed so that touchscreen and keyboard works ok.
 16.01.2020: Added PMS7003 particle sensor asynchronous reading.
@@ -49,6 +50,7 @@ If Touchscreen works weird, check your connectors! If you use dupont-connectors,
 22.01.2020: Re-organized parameters. Added running configuration json and added monitoring for WiFi-connection.
 25.01.2020: Memory allocation errors -> simplified code. Removed possibility to select SSID and passowrd, keyboard etc.
             Added BME280 sensor reading.
+26.01.2020: Added parameters for mqtt topics and sensor tresholds, reorganized colouring
 
 
 """
@@ -96,6 +98,7 @@ try:
         MQTT_PASSWORD = data['MQTT_PASSWORD']
         MQTT_USER = data['MQTT_USER']
         MQTT_PORT = data['MQTT_PORT']
+        MQTT_UPDATE_INTERVAL = data['MQTT_UPDATE_INTERVAL']
         CLIENT_ID = data['CLIENT_ID']
         TOPIC_ERRORS = data['TOPIC_ERRORS']
         WEBREPL_PASSWORD = data['WEBREPL_PASSWORD']
@@ -107,8 +110,35 @@ try:
         SCREEN_UPDATE_INTERVAL = data['SCREEN_UPDATE_INTERVAL']
         DEBUG_SCREEN_ACTIVE = data['DEBUG_SCREEN_ACTIVE']
         SCREEN_TIMEOUT = data['SCREEN_TIMEOUT']
+        TOPIC_TEMP = data['TOPIC_TEMP']
+        TOPIC_RH = data['TOPIC_RH']
+        TOPIC_PRESSURE = data['TOPIC_PRESSURE']
+        TOPIC_AIRQUALITY = data['TOPIC_AIRQUALITY']
+        TOPIC_CO2 = data['TOPIC_CO2']
+        TOPIC_PM1_0 = data['TOPIC_PM1_0']
+        TOPIC_PM1_0_ATM = data['TOPIC_PM1_0_ATM']
+        TOPIC_PM2_5 = data['TOPIC_PM2_5']
+        TOPIC_PM2_5_ATM = data['TOPIC_PM2_5_ATM']
+        TOPIC_PM10_0 = data['TOPIC_PM10_0']
+        TOPIC_PM10_0_ATM = data['TOPIC_PM10_0_ATM']
+        TOPIC_PCNT_0_3 = data['TOPIC_PCNT_0_3']
+        TOPIC_PCNT_0_5 = data['TOPIC_PCNT_0_5']
+        TOPIC_PCNT_1_0 = data['TOPIC_PCNT_1_0']
+        TOPIC_PCNT_2_5 = data['TOPIC_PCNT_2_5']
+        TOPIC_PCNT_5_0 = data['TOPIC_PCNT_5_0']
+        TOPIC_PCNT_10_0 = data['TOPIC_PCNT_10_0']
+        CO2_ALARM_TRESHOLD = data['CO2_ALARM_TRESHOLD']
+        AIRQUALIY_TRESHOLD = data['AIRQUALIY_TRESHOLD']
+        TEMP_TRESHOLD = data['TEMP_TRESHOLD']
+        TEMP_CORRECTION = data['TEMP_CORRECTION']
+        RH_TRESHOLD = data['RH_TRESHOLD']
+        RH_CORRECTION = data['RH_CORRECTION']
+        PRESSURE_TRESHOLD = data['PRESSURE_TRESHOLD']
+        PRESSURE_CORRECTION = data['PRESSURE_CORRECTION']
 
-except OSError:  # open failed
+except OSError:
+    print("Some variables missing, using defaults!")
+    utime.sleep(30)
     SSID1 = None
     SSID2 = None
     PASSWORD1 = None
@@ -128,11 +158,36 @@ except OSError:  # open failed
     SCREEN_UPDATE_INTERVAL = 5
     DEBUG_SCREEN_ACTIVE = 1
     SCREEN_TIMEOUT = 60
+    TOPIC_TEMP = None
+    TOPIC_RH = None
+    TOPIC_PRESSURE = None
+    TOPIC_AIRQUALITY = None
+    TOPIC_CO2 = None
+    TOPIC_PM1_0 = None
+    TOPIC_PM1_0_ATM = None
+    TOPIC_PM2_5 = None
+    TOPIC_PM2_5_ATM = None
+    TOPIC_PM10_0 = None
+    TOPIC_PM10_0_ATM = None
+    TOPIC_PCNT_0_3 = None
+    TOPIC_PCNT_0_5 = None
+    TOPIC_PCNT_1_0 = None
+    TOPIC_PCNT_2_5 = None
+    TOPIC_PCNT_5_0 = None
+    TOPIC_PCNT_10_0 = None
+    CO2_ALARM_TRESHOLD = 1200
+    AIRQUALIY_TRESHOLD = 50
+    TEMP_TRESHOLD = 30
+    TEMP_CORRECTION = 0
+    RH_TRESHOLD = 95
+    RH_CORRECTION = 0
+    PRESSURE_TRESHOLD = 1100
+    PRESSURE_CORRECTION = 0
 
 
 def resolve_date():
     (year, month, mdate, hour, minute, second, wday, yday) = utime.localtime()
-    weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    weekdays = ['Ma', 'Ti', 'Ke', 'To', 'Pe', 'La', 'Su']
     """ Simple DST for Finland """
     summer_march = utime.mktime((year, 3, (14 - (int(5 * year / 4 + 1)) % 7), 1, 0, 0, 0, 0, 0))
     winter_december = utime.mktime((year, 10, (7 - (int(5 * year / 4 + 1)) % 7), 1, 0, 0, 0, 0, 0))
@@ -571,38 +626,64 @@ class TFTDisplay(object):
 
     async def draw_error_background(self):
         self.display.fill_rectangle(0, 0, self.display.width, self.display.height, self.colours['red'])
-        self.display.fill_rectangle(10, 10, 300, 220, self.colours['orange'])
-        self.colour_background = 'orange'
+        self.display.fill_rectangle(10, 10, 300, 220, self.colours['light_green'])
+        self.colour_background = 'light_green'
 
     @staticmethod
     async def update_welcome_screen():
-        row1 = "%s %s" % (resolve_date()[0], resolve_date()[1])
-        row1_colour = 'white'
-        row2 = "Today is %s " % resolve_date()[2]
-        row2_colour = 'white'
-        # To avoid nonetype errors
+        row1 = "%s %s %s" % (resolve_date()[2], resolve_date()[0], resolve_date()[1])
+        row1_colour = 'black'
         if co2sensor.co2_value is None:
-            row3 = "CO2: waiting..."
-            row3_colour = 'yellow'
+            row2 = "CO2: waiting..."
+            row2_colour = 'yellow'
         elif co2sensor.co2_average is None:
-            row3 = "CO2 average counting..."
+            row2 = "CO2 average counting..."
+            row2_colour = 'yellow'
+        else:
+            row2 = "CO2: %s ppm (%s)" % ("{:.1f}".format(co2sensor.co2_value),
+                                         "{:.1f}".format(co2sensor.co2_average))
+            if (co2sensor.co2_average > CO2_ALARM_TRESHOLD) or (co2sensor.co2_value > CO2_ALARM_TRESHOLD):
+                row2_colour = 'red'
+            else:
+                row2_colour = 'blue'
+        if airquality.aqinndex is None:
+            row3 = "AirQuality not ready"
             row3_colour = 'yellow'
         else:
-            row3 = "CO2: %s ppm (%s)" % ("{:.1f}".format(co2sensor.co2_value),
-                                         "{:.1f}".format(co2sensor.co2_average))
-            row3_colour = 'blue'
-        if airquality.aqinndex is None:
-            row4 = "AirQuality not ready"
+            row3 = "Air Quality Index: %s" % ("{:.1f}".format(airquality.aqinndex))
+            if airquality.aqinndex > AIRQUALIY_TRESHOLD:
+                row3_colour = 'red'
+            else:
+                row3_colour = 'blue'
+        if bmesensor.values[0] is None:
+            row4 = "Waiting values..."
             row4_colour = 'yellow'
         else:
-            row4 = "Air Quality Index: %s" % ("{:.1f}".format(airquality.aqinndex))
-            row4_colour = 'black'
-        row5 = "Temp: %s" % bmesensor.values[0]
-        row5_colour = 'yellow'
-        row6 = "Rh: %s" % bmesensor.values[1]
-        row6_colour = 'yellow'
-        row7 = "Pressure: %s " % bmesensor.values[2]
-        row7_colour = 'yellow'
+            row4 = "Temp: %s" % bmesensor.values[0]
+            if bmesensor.values[0] > TEMP_TRESHOLD:
+                row4_colour = 'red'
+            else:
+                row4_colour = 'blue'
+        if bmesensor.values[2] is None:
+            row5 = "Waiting values..."
+            row5_colour = 'yellow'
+        else:
+            row5 = "Humidity: %s" % bmesensor.values[2]
+            if bmesensor.values[2] > RH_TRESHOLD:
+                row5_colour = 'red'
+            else:
+                row5_colour = 'blue'
+        if bmesensor.values[1] is None:
+            row6 = "Waiting values..."
+            row6_colour = 'yellow'
+        else:
+            row6 = "Pressure: %s ATM" % bmesensor.values[1]
+            if bmesensor.values[1] > PRESSURE_TRESHOLD:
+                row6_colour = 'red'
+            else:
+                row6_colour = 'blue'
+        row7 = " Touch screen for details"
+        row7_colour = 'white'
         rows = row1, row2, row3, row4, row5, row6, row7
         row_colours = row1_colour, row2_colour, row3_colour, row4_colour, row5_colour, row6_colour, row7_colour
         return rows, row_colours
@@ -714,16 +795,31 @@ async def collect_carbage_and_update_status_loop():
             wifinet.ip_address = network.WLAN(network.STA_IF).ifconfig()[0]
             wifinet.wifi_strenth = network.WLAN(network.STA_IF).status('rssi')
 
-        # For display
+        # For sensors tresholds, background change
         if co2sensor.co2_average is not None:
-            if co2sensor.co2_average >= 1200:
+            if co2sensor.co2_average > CO2_ALARM_TRESHOLD:
                 display.all_ok = False
-            elif co2sensor.co2_average < 1200:
+            elif co2sensor.co2_average <= CO2_ALARM_TRESHOLD:
                 display.all_ok = True
         if airquality.aqinndex is not None:
-            if airquality.aqinndex >= 50:
+            if airquality.aqinndex > AIRQUALIY_TRESHOLD:
                 display.all_ok = False
-            elif airquality.aqinndex < 50:
+            elif airquality.aqinndex <= AIRQUALIY_TRESHOLD:
+                display.all_ok = True
+        if bmesensor.values[0] is not None:
+            if bmesensor.values[0] > TEMP_TRESHOLD:
+                display.all_ok = False
+            else:
+                display.all_ok = True
+        if bmesensor.values[2] is not None:
+            if bmesensor.values[2] > RH_TRESHOLD:
+                display.all_ok = False
+            else:
+                display.all_ok = True
+        if bmesensor.values[1] is not None:
+            if bmesensor.values[1] > PRESSURE_TRESHOLD:
+                display.all_ok = False
+            else:
                 display.all_ok = True
         else:
             display.all_ok = True
