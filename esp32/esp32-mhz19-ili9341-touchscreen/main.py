@@ -1,26 +1,24 @@
 """"
 This script is used for airquality measurement. Display is ILI9341 2.8" TFT touch screen in the SPI bus,
 CO2 device is MH-Z19 NDIR-sensor, particle sensor is PMS7003 and temperature/rh/pressure sensor BME280.
-
 Draft code. Removed comments and refactored variablenames to save memory!
-
 Updated: 26.01.2020: Jari Hiltunen
 """
 from machine import SPI, I2C, Pin, freq, reset, reset_cause
 import uasyncio as asyncio
 from utime import time, mktime, localtime, sleep
 import gc
-from MQTT_AS import MQTTClient, config
+from drivers.MQTT_AS import MQTTClient, config
 import network
 import ntptime
 import webrepl
-from XPT2046 import Touch
-from ILI9341 import Display, color565
-from XGLCD_FONT import XglcdFont
-from AQI import AQI
-import PMS7003_AS as PARTICLES
-import MHZ19B_AS as CO2
-import BME280_float as BmE
+from drivers.XPT2046 import Touch
+from drivers.ILI9341 import Display, color565
+from drivers.XGLCD_FONT import XglcdFont
+from drivers.AQI import AQI
+import drivers.PMS7003_AS as PARTICLES
+import drivers.MHZ19B_AS as CO2
+import drivers.BME280_float as BmE
 from json import load
 
 
@@ -339,8 +337,10 @@ class TFTDisplay(object):
         self.d_scr_active = True
         r, r_c = await self.particle_screen()
         await self.show_screen(r, r_c)
+        await asyncio.sleep(5)  # todo: wait touch
         r, r_c = await self.status_monitor()
         await self.show_screen(r, r_c)
+        await asyncio.sleep(5)  # todo: wait touch
         self.d_scr_active = False
         self.t_tched = False
 
@@ -359,6 +359,12 @@ class TFTDisplay(object):
             else:
                 r, r_c = await self.upd_welcome()
                 await self.show_screen(r, r_c)
+
+    async def wait_timer(self):
+        n = 0
+        while (self.t_tched is False) and (n <= self.scr_upd_ival * 1000):
+            await asyncio.sleep_ms(1)
+            n += 1
 
     async def show_screen(self, rows, row_colours):
         r1 = "Airquality 0.02"
@@ -397,7 +403,7 @@ class TFTDisplay(object):
         self.d.draw_text(self.indent_p, 25 + self.r_h * 4, r5, self.a_font, self.cols[r5_c], self.cols[self.col_bckg])
         self.d.draw_text(self.indent_p, 25 + self.r_h * 5, r6, self.a_font, self.cols[r6_c], self.cols[self.col_bckg])
         self.d.draw_text(self.indent_p, 25 + self.r_h * 6, r7, self.a_font, self.cols[r7_c], self.cols[self.col_bckg])
-        await asyncio.sleep(self.scr_upd_ival)
+        await self.wait_timer()
 
     async def ok_bckg(self):
         self.d.fill_rectangle(0, 0, self.d.width, self.d.height, self.cols['yellow'])
@@ -572,33 +578,22 @@ async def upd_status_loop():
             net.wifi_strenth = network.WLAN(network.STA_IF).status('rssi')
 
         # For sensors tresholds, background change
+        disp.d_all_ok = True
         if co2s.co2_average is not None:
             if co2s.co2_average > CO2_ALM_THOLD:
                 disp.d_all_ok = False
-            elif co2s.co2_average <= CO2_ALM_THOLD:
-                disp.d_all_ok = True
         if aq.aqinndex is not None:
             if aq.aqinndex > AQ_THOLD:
                 disp.d_all_ok = False
-            elif aq.aqinndex <= AQ_THOLD:
-                disp.d_all_ok = True
         if bmes.values[0] is not None:
             if float(bmes.values[0][:-1]) > TEMP_THOLD:
                 disp.d_all_ok = False
-            else:
-                disp.d_all_ok = True
         if bmes.values[2] is not None:
             if float(bmes.values[2][:-1]) > RH_THOLD:
                 disp.d_all_ok = False
-            else:
-                disp.d_all_ok = True
         if bmes.values[1] is not None:
             if float(bmes.values[1][:-3]) > P_THOLD:
                 disp.d_all_ok = False
-            else:
-                disp.d_all_ok = True
-        else:
-            disp.d_all_ok = True
         gc.collect()
         await asyncio.sleep(disp.scr_upd_ival - 2)
 
