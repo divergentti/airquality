@@ -1,6 +1,8 @@
 27.01.2020.
 
-This is first running version of indoor Airquality measurement device. Due to free ram issues comments are removed from the code and I will update this README.
+This is first running version of indoor Airquality measurement device. 
+
+Due to free ram issues variable names are refactored (shortened) and comments are removed from the code. I will update this README instead.
 
 Operation:
 - Hardware-related parameters are in the parameters.py. UART2 may have initialization problems if boot cause is power on boot. That is fixed in the code by deleting CO2 sensor object and re-creation of the object if bootcause was 1 = power on boot. For some reason 2 second pause is not enough, 5 seconds seems to work.
