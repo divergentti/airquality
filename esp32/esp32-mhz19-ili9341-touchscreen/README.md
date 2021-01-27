@@ -4,8 +4,8 @@ This is first running version of indoor Airquality measurement device. Due to fr
 
 Operation:
 - Hardware-related parameters are in the parameters.py. UART2 may have initialization problems if boot cause is power on boot. That is fixed in the code by deleting CO2 sensor object and re-creation of the object if bootcause was 1 = power on boot. For some reason 2 second pause is not enough, 5 seconds seems to work.
-- Runtime-parameters are in runtimeconfig.json and my initial idea was to update this file so that if user selects WiFi AP and input password, we create runtime parameters to the file. Now this file needs to be updated via WebREPl or via REPL.
-- Network statup is asynhronous so that two SSID + PASSWORD combinations can be presented in the runtimeconfig.json. Highest rssi = signal strength AP is selected. Once network is connected = IP address is acquired, then script executes WebREPL startup and adjust time with NTPTIME.
+- Runtime-parameters are in runtimeconfig.json and my initial idea was to update this file so that user selections can be saved to the file. Now this file needs to be updated via WebREPl or via REPL.
+- Network statup is asynhronous so that two SSID + PASSWORD combinations can be presented in the runtimeconfig.json. Highest rssi = signal strength AP is selected. Once network is connected = IP address is acquired, then script executes WebREPL startup and adjust time with NTPTIME. If network gets disconnected, script will redo network handshake.
 - Measurement from all sensors are gathered in the background and values are filled into rows to be displayed.
 - MQTT topics updates information to the broker and from broker to the InfluxDB and Grafana. 
 - MQTT can be used to pick better correction multipliers for sensors.
