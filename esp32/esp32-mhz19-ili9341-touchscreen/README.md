@@ -22,6 +22,10 @@ Known issues:
 - Keyboard is not implemented, therefore touch just rotates detail screen (to be added more).
 - Display update is slow due to framebuffer issue. During screen update availabe memory is low, may cause out of memory. I tried with Peter Hinch ILI9341 drivers, https://github.com/peterhinch/micropython-tft-gui and https://github.com/peterhinch/micropython-lcd160cr-gui but unfortunatelly with my knowledge I did not get driver working at all, resulting out of memory right in the class init. If you get them working, please, use those drivers instead of this slow driver.
 
+Solved issues:
+- Touchscreen gave strange x, y values: reason too high SPI-bus speed. Use minimum 1 MHz, maximum 2 MHz. This script uses 1.2MHz
+- Toucscreen responded very slow to touch: bad DUPONT-connectors! 
+
 
 Datasheets:
 1. MH-Z19B CO2 NDIR sensor https://www.winsen-sensor.com/d/files/infrared-gas-sensor/mh-z19b-co2-ver1_0.pdf
