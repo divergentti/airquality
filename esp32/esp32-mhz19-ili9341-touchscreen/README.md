@@ -15,6 +15,7 @@ Future:
 - Test if SD-slot can be used at the same time, with bit-banged softSPI for Touchscreen and hardware SPI for the SD-card.
 - I try to add some trending, either so that trends are picked from Grafana as embedded graphics, or create some simple graphics, depending on free ram.
 - Design case with Fusion360 to be printed with 3D-printer, adding proper air channels for sensors and perhaps litle Steveson's shield, which indoors is most likely not that important. BME280 sensor will be bottom, because heat from ESP32 SMD will go up. PMS7003 documentation recommends distance between floow and sensor > 20 cm, which means case shall be wall mounted. 
+- Perhaps calculate better AirQuality etc information in the InfluxDB and return data back to device via MQTT.
 
 
 Known issues:
