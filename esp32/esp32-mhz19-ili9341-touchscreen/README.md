@@ -27,7 +27,7 @@ Datasheets:
 1. MH-Z19B CO2 NDIR sensor https://www.winsen-sensor.com/d/files/infrared-gas-sensor/mh-z19b-co2-ver1_0.pdf
 2. BME280 Temp/Rh/Pressure sensor https://www.bosch-sensortec.com/products/environmental-sensors/humidity-sensors-bme280/
 3. PMS7003 Particle sensor https://download.kamami.com/p564008-p564008-PMS7003%20series%20data%20manua_English_V2.5.pdf
-
+4. ESP32 https://www.espressif.com/sites/default/files/documentation/esp32_datasheet_en.pdf
 
 Libraries:
 1. ILI9341 display rdagger / https://github.com/rdagger/micropython-ili9341/blob/master/ili9341.py
@@ -38,3 +38,7 @@ Libraries:
 5. MHZ19B_AS modified to asynchronous StreamWriter and Reader method by Jari Hiltunen, 
    original Dmytro Panin https://github.com/dr-mod/co2-monitoring-station/blob/master/mhz19b.py
 6. MQTT_AS Peter Hinch / https://github.com/peterhinch/micropython-mqtt/blob/master/mqtt_as/mqtt_as.py
+
+Micropython from https://micropython.org/ downloads https://micropython.org/download/ running esp32-idf4-20200902-v1.13.bin
+
+AMPY tool for file transfers https://learn.adafruit.com/micropython-basics-load-files-and-run-code/install-ampy
