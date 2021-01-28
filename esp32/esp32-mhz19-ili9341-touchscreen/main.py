@@ -2,7 +2,7 @@
 This script is used for airquality measurement. Display is ILI9341 2.8" TFT touch screen in the SPI bus,
 CO2 device is MH-Z19 NDIR-sensor, particle sensor is PMS7003 and temperature/rh/pressure sensor BME280.
 Draft code. Removed comments and refactored variablenames to save memory!
-Updated: 26.01.2020: Jari Hiltunen
+Updated: 28.01.2020: Jari Hiltunen
 """
 from machine import SPI, I2C, Pin, freq, reset, reset_cause
 import uasyncio as asyncio
@@ -21,6 +21,9 @@ import drivers.MHZ19B_AS as CO2
 import drivers.BME280_float as BmE
 from json import load
 
+# Globals
+mqtt_up = False
+
 
 try:
     f = open('parameters.py', "r")
@@ -32,6 +35,7 @@ try:
 except OSError:  # open failed
     print("parameter.py-file missing! Can not continue!")
     raise
+
 
 try:
     f = open('runtimeconfig.json', 'r')
@@ -109,7 +113,8 @@ def resolve_date():
 
 class ConnectWiFi(object):
 
-    def __init__(self):
+    def __init__(self, name):
+        self.name = name
         self.net_ok = False
         self.password = None
         self.u_pwd = None
@@ -121,13 +126,12 @@ class ConnectWiFi(object):
         self.webrepl_started = False
         self.searh_list = []
         self.ssid_list = []
-        self.mqttclient = None
         self.con_att_fail = 0
         self.startup_time = None
 
     async def net_upd_loop(self):
         while True:
-            if START_NETWORK == 1:
+            if (START_NETWORK == 1) and (self.net_ok is False):
                 await self.c_net()
                 if self.net_ok is False:
                     await self.s_nets()
@@ -248,45 +252,6 @@ class ConnectWiFi(object):
                 self.con_att_fail += 1
         await asyncio.sleep(1)
 
-    def mqtt_init(self):
-        config['server'] = MQTT_SERVER
-        config['ssid'] = self.use_ssid
-        config['wifi_pw'] = self.u_pwd
-        config['user'] = MQTT_USER
-        config['password'] = MQTT_PASSWORD
-        config['port'] = MQTT_PORT
-        config['client_id'] = CLIENT_ID
-        config['subs_cb'] = self.update_mqtt_status
-        config['connect_coro'] = self.mqtt_subscribe
-        # Communication object
-        self.mqttclient = MQTTClient(config)
-
-    async def mqtt_up_loop(self):
-        #  This loop just keeps the mqtt connection up
-        await self.mqtt_subscribe()
-        n = 0
-        while True:
-            await asyncio.sleep(5)
-            print('mqtt-publish', n)
-            await self.mqttclient.publish('result', '{}'.format(n), qos=1)
-            n += 1
-
-    async def mqtt_subscribe(self):
-        await asyncio.sleep(1)
-        # await self.mqttclient.subscribe(TOPIC_OUTDOOR, 0)
-
-    def update_mqtt_status(self, topic, msg, retained):
-        pass
-        """ Subscribe mqtt topics for correction multipliers and such. As an example, if
-        temperature measurement is linearly wrong +0,8C, send substraction via mqtt-topic. If measurement is 
-        not linearly wrong, pass range + correction to the topics.
-        # print("Topic: %s, message %s" % (topic, msg))
-        Example:
-        if topic == '/device_id/temp/correction/':
-            correction = float(msg)
-            return correction
-        """
-
 
 class TFTDisplay(object):
 
@@ -403,6 +368,7 @@ class TFTDisplay(object):
         self.d.draw_text(self.indent_p, 25 + self.r_h * 4, r5, self.a_font, self.cols[r5_c], self.cols[self.col_bckg])
         self.d.draw_text(self.indent_p, 25 + self.r_h * 5, r6, self.a_font, self.cols[r6_c], self.cols[self.col_bckg])
         self.d.draw_text(self.indent_p, 25 + self.r_h * 6, r7, self.a_font, self.cols[r7_c], self.cols[self.col_bckg])
+        gc.collect()
         await self.wait_timer()
 
     async def ok_bckg(self):
@@ -476,7 +442,7 @@ class TFTDisplay(object):
 
     @staticmethod
     async def particle_screen():
-        if pms.pms_dictionary is not None:
+        if (pms.pms_dictionary is not None) and ((time() - pms.startup_time) > pms.read_interval):
             r1 = "1. Concentration ug/m3:"
             r1_c = 'blue'
             if (pms.pms_dictionary['PM1_0'] is not None) and (pms.pms_dictionary['PM1_0_ATM'] is not None) and \
@@ -600,14 +566,14 @@ async def upd_status_loop():
 
 async def show_what_i_do():
     # Output is REPL
-    MQTTClient.DEBUG = False
 
     while True:
         # print("PMS dictionary: %s" % pms.pms_dictionary)
         # print("Air quality index: %s " % airquality.aqinndex)
         # print("CO2: %s" % co2sensor.co2_value)
         # print("Average: %s" % co2sensor.co2_average)
-        # print("WiFi Connected %s" % wifinet.network_connected)
+        print("WiFi Connected %s" % net.net_ok)
+        print("MQTT Connected %s" % mqtt_up)
         # print("WiFi failed connects %s" % wifinet.connect_attemps_failed)
         print("Memory free: %s" % gc.mem_free())
         print("Memory alloc: %s" % gc.mem_alloc())
@@ -620,7 +586,7 @@ async def show_what_i_do():
 # Kick in some speed, max 240000000, normal 160000000, min with WiFi 80000000
 freq(240000000)
 
-net = ConnectWiFi()
+net = ConnectWiFi('wifi')
 
 # Sensor and controller objects
 # Particle sensor
@@ -644,6 +610,103 @@ d_spi.init(baudrate=40000000, sck=Pin(TFT_CLK_PIN), mosi=Pin(TFT_MOSI_PIN), miso
 disp = TFTDisplay(t_spi, d_spi)
 
 
+async def mqtt_up_loop():
+    global mqtt_up
+    global client
+
+    while net.net_ok is False:
+        await asyncio.sleep(2)
+
+    if net.net_ok is True:
+        config['subs_cb'] = update_mqtt_status
+        config['connect_coro'] = mqtt_subscribe
+        config['ssid'] = net.use_ssid
+        config['wifi_pw'] = net.u_pwd
+        MQTTClient.DEBUG = True
+        client = MQTTClient(config)
+        await client.connect()
+        mqtt_up = True
+
+    n = 0
+    while True:
+        # await self.mqtt_subscribe()
+        await asyncio.sleep(5)
+        print('mqtt-publish', n)
+        await client.publish('result', '{}'.format(n), qos=1)
+        n += 1
+
+
+async def mqtt_subscribe(client):
+    # If "client" is missing, you get error from line 581 in MQTT_AS.py (1 given, expected 0)
+    await client.subscribe('$SYS/broker/messages/publish/dropped:', 0)
+
+
+def update_mqtt_status(topic, msg, retained):
+    print((topic, msg, retained))
+    """ Subscribe mqtt topics for correction multipliers and such. As an example, if
+                temperature measurement is linearly wrong +0,8C, send substraction via mqtt-topic. If measurement is 
+                not linearly wrong, pass range + correction to the topics.
+                # print("Topic: %s, message %s" % (topic, msg))
+                Example:
+                if topic == '/device_id/temp/correction/':
+                correction = float(msg)
+                return correction
+            """
+
+
+async def mqtt_publish_loop():
+
+    if mqtt_up is False:
+        await asyncio.sleep(10)
+
+    while True:
+        if (pms.pms_dictionary is not None) and ((time() - pms.startup_time) > pms.read_interval):
+            if pms.pms_dictionary['PM1_0'] is not None:
+                await client.publish(TOPIC_PM1_0, pms.pms_dictionary['PM1_0'], retain=0, qos=0)
+            if pms.pms_dictionary['PM1_0_ATM'] is not None:
+                await client.publish(TOPIC_PM1_0_ATM, pms.pms_dictionary['PM1_0_ATM'], retain=0, qos=0)
+            if pms.pms_dictionary['PM2_5'] is not None:
+                await client.publish(TOPIC_PM2_5, pms.pms_dictionary['PM2_5'], retain=0, qos=0)
+            if pms.pms_dictionary['PM2_5_ATM'] is not None:
+                await client.publish(TOPIC_PM2_5_ATM, pms.pms_dictionary['PM2_5_ATM'], retain=0, qos=0)
+            if pms.pms_dictionary['PM10_0'] is not None:
+                await client.publish(TOPIC_PM10_0, pms.pms_dictionary['PM10_0'], retain=0, qos=0)
+            if pms.pms_dictionary['PM10_0_ATM'] is not None:
+                await client.publish(TOPIC_PM10_0_ATM, pms.pms_dictionary['PM10_0_ATM'], retain=0, qos=0)
+            if pms.pms_dictionary['PCNT_0_3'] is not None:
+                await client.publish(TOPIC_PCNT_0_3, pms.pms_dictionary['PCNT_0_3'], retain=0, qos=0)
+            if pms.pms_dictionary['PCNT_0_5'] is not None:
+                await client.publish(TOPIC_PCNT_0_5, pms.pms_dictionary['PCNT_0_5'], retain=0, qos=0)
+            if pms.pms_dictionary['PCNT_1_0'] is not None:
+                await client.publish(TOPIC_PCNT_1_0, pms.pms_dictionary['PCNT_1_0'], retain=0, qos=0)
+            if pms.pms_dictionary['PCNT_2_5'] is not None:
+                await client.publish(TOPIC_PCNT_2_5, pms.pms_dictionary['PCNT_2_5'], retain=0, qos=0)
+            if pms.pms_dictionary['PCNT_5_0'] is not None:
+                await client.publish(TOPIC_PCNT_5_0, pms.pms_dictionary['PCNT_5_0'], retain=0, qos=0)
+            if pms.pms_dictionary['PCNT_10_0'] is not None:
+                await client.publish(TOPIC_PCNT_10_0, pms.pms_dictionary['PCNT_10_0'], retain=0, qos=0)
+        if bmes.values[0][:-1] is not None:
+            await client.publish(TOPIC_TEMP, bmes.values[0][:-1], retain=0, qos=0)
+        if bmes.values[2][:-1] is not None:
+            await client.publish(TOPIC_RH, bmes.values[2][:-1], retain=0, qos=0)
+        if bmes.values[1][:-3] is not None:
+            await client.publish(TOPIC_PRESSURE, bmes.values[1][:-3], retain=0, qos=0)
+        if aq.aqinndex is not None:
+            await client.publish(TOPIC_AIRQUALITY, aq.aqinndex, retain=0, qos=0)
+        if co2s.co2_average is not None:
+            await client.publish(TOPIC_CO2, co2s.co2_average, retain=0, qos=0)
+        await asyncio.sleep(MQTT_INTERVAL)
+
+
+# For MQTT_AS
+config['server'] = MQTT_SERVER
+config['user'] = MQTT_USER
+config['password'] = MQTT_PASSWORD
+config['port'] = MQTT_PORT
+config['client_id'] = CLIENT_ID
+client = MQTTClient(config)
+
+
 async def main():
     loop = asyncio.get_event_loop()
     loop.create_task(net.net_upd_loop())
@@ -651,9 +714,12 @@ async def main():
     loop.create_task(co2s.read_co2_loop())
     loop.create_task(aq.upd_aq_loop())
     loop.create_task(upd_status_loop())
+    loop.create_task(disp.disp_loop())
     if DEBUG_SCREEN_ACTIVE == 1:
         loop.create_task(show_what_i_do())
-    loop.create_task(disp.disp_loop())
+    if START_MQTT == 1:
+        loop.create_task(mqtt_up_loop())
+        loop.create_task(mqtt_publish_loop())
     loop.run_forever()
 
 
