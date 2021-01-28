@@ -615,7 +615,7 @@ async def mqtt_up_loop():
     global client
 
     while net.net_ok is False:
-        await asyncio.sleep(2)
+        await asyncio.sleep(5)
 
     if net.net_ok is True:
         config['subs_cb'] = update_mqtt_status
@@ -637,7 +637,7 @@ async def mqtt_up_loop():
 
 
 async def mqtt_subscribe(client):
-    # If "client" is missing, you get error from line 581 in MQTT_AS.py (1 given, expected 0)
+    # If "client" is missing, you get error from line 538 in MQTT_AS.py (1 given, expected 0)
     await client.subscribe('$SYS/broker/messages/publish/dropped:', 0)
 
 
@@ -656,46 +656,47 @@ def update_mqtt_status(topic, msg, retained):
 
 async def mqtt_publish_loop():
 
-    if mqtt_up is False:
-        await asyncio.sleep(10)
-
     while True:
-        if (pms.pms_dictionary is not None) and ((time() - pms.startup_time) > pms.read_interval):
-            if pms.pms_dictionary['PM1_0'] is not None:
-                await client.publish(TOPIC_PM1_0, pms.pms_dictionary['PM1_0'], retain=0, qos=0)
-            if pms.pms_dictionary['PM1_0_ATM'] is not None:
-                await client.publish(TOPIC_PM1_0_ATM, pms.pms_dictionary['PM1_0_ATM'], retain=0, qos=0)
-            if pms.pms_dictionary['PM2_5'] is not None:
-                await client.publish(TOPIC_PM2_5, pms.pms_dictionary['PM2_5'], retain=0, qos=0)
-            if pms.pms_dictionary['PM2_5_ATM'] is not None:
-                await client.publish(TOPIC_PM2_5_ATM, pms.pms_dictionary['PM2_5_ATM'], retain=0, qos=0)
-            if pms.pms_dictionary['PM10_0'] is not None:
-                await client.publish(TOPIC_PM10_0, pms.pms_dictionary['PM10_0'], retain=0, qos=0)
-            if pms.pms_dictionary['PM10_0_ATM'] is not None:
-                await client.publish(TOPIC_PM10_0_ATM, pms.pms_dictionary['PM10_0_ATM'], retain=0, qos=0)
-            if pms.pms_dictionary['PCNT_0_3'] is not None:
-                await client.publish(TOPIC_PCNT_0_3, pms.pms_dictionary['PCNT_0_3'], retain=0, qos=0)
-            if pms.pms_dictionary['PCNT_0_5'] is not None:
-                await client.publish(TOPIC_PCNT_0_5, pms.pms_dictionary['PCNT_0_5'], retain=0, qos=0)
-            if pms.pms_dictionary['PCNT_1_0'] is not None:
-                await client.publish(TOPIC_PCNT_1_0, pms.pms_dictionary['PCNT_1_0'], retain=0, qos=0)
-            if pms.pms_dictionary['PCNT_2_5'] is not None:
-                await client.publish(TOPIC_PCNT_2_5, pms.pms_dictionary['PCNT_2_5'], retain=0, qos=0)
-            if pms.pms_dictionary['PCNT_5_0'] is not None:
-                await client.publish(TOPIC_PCNT_5_0, pms.pms_dictionary['PCNT_5_0'], retain=0, qos=0)
-            if pms.pms_dictionary['PCNT_10_0'] is not None:
-                await client.publish(TOPIC_PCNT_10_0, pms.pms_dictionary['PCNT_10_0'], retain=0, qos=0)
-        if bmes.values[0][:-1] is not None:
-            await client.publish(TOPIC_TEMP, bmes.values[0][:-1], retain=0, qos=0)
-        if bmes.values[2][:-1] is not None:
-            await client.publish(TOPIC_RH, bmes.values[2][:-1], retain=0, qos=0)
-        if bmes.values[1][:-3] is not None:
-            await client.publish(TOPIC_PRESSURE, bmes.values[1][:-3], retain=0, qos=0)
-        if aq.aqinndex is not None:
-            await client.publish(TOPIC_AIRQUALITY, aq.aqinndex, retain=0, qos=0)
-        if co2s.co2_average is not None:
-            await client.publish(TOPIC_CO2, co2s.co2_average, retain=0, qos=0)
-        await asyncio.sleep(MQTT_INTERVAL)
+        if mqtt_up is False:
+            await asyncio.sleep(10)
+        else:
+            await asyncio.sleep(MQTT_INTERVAL)
+            if (pms.pms_dictionary is not None) and ((time() - pms.startup_time) > pms.read_interval):
+                if pms.pms_dictionary['PM1_0'] is not None:
+                    await client.publish(TOPIC_PM1_0, str(pms.pms_dictionary['PM1_0']), retain=0, qos=0)
+                if pms.pms_dictionary['PM1_0_ATM'] is not None:
+                    await client.publish(TOPIC_PM1_0_ATM, str(pms.pms_dictionary['PM1_0_ATM']), retain=0, qos=0)
+                if pms.pms_dictionary['PM2_5'] is not None:
+                    await client.publish(TOPIC_PM2_5, str(pms.pms_dictionary['PM2_5']), retain=0, qos=0)
+                if pms.pms_dictionary['PM2_5_ATM'] is not None:
+                    await client.publish(TOPIC_PM2_5_ATM, str(pms.pms_dictionary['PM2_5_ATM']), retain=0, qos=0)
+                if pms.pms_dictionary['PM10_0'] is not None:
+                    await client.publish(TOPIC_PM10_0, str(pms.pms_dictionary['PM10_0']), retain=0, qos=0)
+                if pms.pms_dictionary['PM10_0_ATM'] is not None:
+                    await client.publish(TOPIC_PM10_0_ATM, str(pms.pms_dictionary['PM10_0_ATM']), retain=0, qos=0)
+                if pms.pms_dictionary['PCNT_0_3'] is not None:
+                    await client.publish(TOPIC_PCNT_0_3, str(pms.pms_dictionary['PCNT_0_3']), retain=0, qos=0)
+                if pms.pms_dictionary['PCNT_0_5'] is not None:
+                    await client.publish(TOPIC_PCNT_0_5, str(pms.pms_dictionary['PCNT_0_5']), retain=0, qos=0)
+                if pms.pms_dictionary['PCNT_1_0'] is not None:
+                    await client.publish(TOPIC_PCNT_1_0, str(pms.pms_dictionary['PCNT_1_0']), retain=0, qos=0)
+                if pms.pms_dictionary['PCNT_2_5'] is not None:
+                    await client.publish(TOPIC_PCNT_2_5, str(pms.pms_dictionary['PCNT_2_5']), retain=0, qos=0)
+                if pms.pms_dictionary['PCNT_5_0'] is not None:
+                    await client.publish(TOPIC_PCNT_5_0, str(pms.pms_dictionary['PCNT_5_0']), retain=0, qos=0)
+                if pms.pms_dictionary['PCNT_10_0'] is not None:
+                    await client.publish(TOPIC_PCNT_10_0, str(pms.pms_dictionary['PCNT_10_0']), retain=0, qos=0)
+            if bmes.values[0][:-1] is not None:
+                await client.publish(TOPIC_TEMP, bmes.values[0][:-1], retain=0, qos=0)
+            if bmes.values[2][:-1] is not None:
+                await client.publish(TOPIC_RH, bmes.values[2][:-1], retain=0, qos=0)
+            if bmes.values[1][:-3] is not None:
+                await client.publish(TOPIC_PRESSURE, bmes.values[1][:-3], retain=0, qos=0)
+            if aq.aqinndex is not None:
+                await client.publish(TOPIC_AIRQUALITY, str(aq.aqinndex), retain=0, qos=0)
+            if co2s.co2_average is not None:
+                await client.publish(TOPIC_CO2, str(co2s.co2_average), retain=0, qos=0)
+
 
 
 # For MQTT_AS
