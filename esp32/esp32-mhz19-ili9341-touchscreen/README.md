@@ -1,3 +1,8 @@
+Update 28.01.2020:
+
+Strugled with mqtt client, because if you forget word "client" from async def mqtt_subscribe(client) sub, error message in MQTT_AS.py line 538 gave "function takes 0 positional arguments but 1 were given" error and I was too blind to see it. Now mqtt publish works fine and data can be collected to the inxludb and grafana. Continuing with screens. Available memory seems to hold somewhere in 20 000 range. 
+
+
 27.01.2020.
 
 This is first running version of indoor Airquality measurement device. 
