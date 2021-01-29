@@ -2,7 +2,7 @@
 This script is used for airquality measurement. Display is ILI9341 2.8" TFT touch screen in the SPI bus,
 CO2 device is MH-Z19 NDIR-sensor, particle sensor is PMS7003 and temperature/rh/pressure sensor BME280.
 Draft code. Removed comments and refactored variablenames to save memory!
-Updated: 28.01.2020: Jari Hiltunen
+Updated: 29.01.2020: Jari Hiltunen
 """
 from machine import SPI, I2C, Pin, freq, reset, reset_cause
 import uasyncio as asyncio
@@ -432,7 +432,7 @@ class TFTDisplay(object):
         row4_colour = 'blue'
         row5 = "WiFi fail: %s" % net.con_att_fail
         row5_colour = 'blue'
-        row6 = "MQTT Up: %s s." % mqtt_up
+        row6 = "MQTT Up: %s" % mqtt_up
         row6_colour = 'blue'
         row7 = "Broker up %s" % broker_uptime[:-8]
         row7_colour = 'blue'
