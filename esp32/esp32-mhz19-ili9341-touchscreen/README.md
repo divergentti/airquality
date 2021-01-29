@@ -10,6 +10,8 @@ Added Sensor monitor, System monitor and Network monitor screen to the rotation.
 
 MQTT listens broker uptime $SYS/broker/uptime messages and updates broker uptime value for the Network monitor screen.
 
+REPL (and WebREPL) is silent if DEBUG_SCREEN_ACTIVE = 0.
+
 
 Update 28.01.2020:
 
