@@ -1,4 +1,4 @@
-Update 29.01.2020:
+Update 29.01.2021:
 
 Separated WifiConnect to own class as WIFICONN_AS.py. Do not try to transfer files with PyCharm to drivers directory! It does not change target directory \ to /.
 Same with ampy, if you transder files, remember to use / instead of \. Example: ampy -p COM4 put drivers\WIFICONN_AS.py drivers/WIFICONN_AS.py works ok, but
@@ -13,12 +13,12 @@ MQTT listens broker uptime $SYS/broker/uptime messages and updates broker uptime
 REPL (and WebREPL) is silent if DEBUG_SCREEN_ACTIVE = 0.
 
 
-Update 28.01.2020:
+Update 28.01.2021:
 
 Strugled with mqtt client, because if you forget word "client" from async def mqtt_subscribe(client) sub, error message in MQTT_AS.py line 538 gave "function takes 0 positional arguments but 1 were given" error and I was too blind to see it. Now mqtt publish works fine and data can be collected to the inxludb and grafana. Continuing with screens. Available memory seems to hold somewhere in 20 000 range. 
 
 
-27.01.2020.
+27.01.2021.
 
 This is first running version of indoor Airquality measurement device. 
 
