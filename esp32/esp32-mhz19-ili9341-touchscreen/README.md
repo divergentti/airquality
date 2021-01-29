@@ -4,6 +4,12 @@ Separated WifiConnect to own class as WIFICONN_AS.py. Do not try to transfer fil
 Same with ampy, if you transder files, remember to use / instead of \. Example: ampy -p COM4 put drivers\WIFICONN_AS.py drivers/WIFICONN_AS.py works ok, but
 if you use \, then you will see file in the root of filesystem named drivers\\WIFICONN_AS.py
 
+Added Dew Point calculation to the main screen as well as altitude calculation. Changed white bottom line "touch and wait details" so that if Airqaulity is not ready, line do not show. This avoids null value screen, which is just skipped in the rotation loop if happens (try: expect: type error).
+
+Added Sensor monitor, System monitor and Network monitor screen to the rotation.
+
+MQTT listens broker uptime $SYS/broker/uptime messages and updates broker uptime value for the Network monitor screen.
+
 
 Update 28.01.2020:
 
