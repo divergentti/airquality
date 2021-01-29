@@ -2,7 +2,7 @@
 This script is used for airquality measurement. Display is ILI9341 2.8" TFT touch screen in the SPI bus,
 CO2 device is MH-Z19 NDIR-sensor, particle sensor is PMS7003 and temperature/rh/pressure sensor BME280.
 Draft code. Removed comments and refactored variablenames to save memory!
-Updated: 28.01.2020: Jari Hiltunen
+Updated: 29.01.2020: Jari Hiltunen
 """
 from machine import SPI, I2C, Pin, freq, reset, reset_cause
 import uasyncio as asyncio
@@ -10,8 +10,7 @@ from utime import time, mktime, localtime, sleep
 import gc
 from drivers.MQTT_AS import MQTTClient, config
 import network
-import ntptime
-import webrepl
+import drivers.WIFICONN_AS as WifiNet
 from drivers.XPT2046 import Touch
 from drivers.ILI9341 import Display, color565
 from drivers.XGLCD_FONT import XglcdFont
@@ -109,148 +108,6 @@ def resolve_date():
     day = "%s.%s.%s" % (mdate, month, year)
     time = "%s:%s:%s" % ("{:02d}".format(hour), "{:02d}".format(minute), "{:02d}".format(second))
     return day, time, weekdays[wday]
-
-
-class ConnectWiFi(object):
-
-    def __init__(self, name):
-        self.name = name
-        self.net_ok = False
-        self.password = None
-        self.u_pwd = None
-        self.use_ssid = None
-        self.ip_a = None
-        self.strength = None
-        self.timeset = False
-        self.s_comp = False
-        self.webrepl_started = False
-        self.searh_list = []
-        self.ssid_list = []
-        self.con_att_fail = 0
-        self.startup_time = None
-
-    async def net_upd_loop(self):
-        while True:
-            if (START_NETWORK == 1) and (self.net_ok is False):
-                await self.c_net()
-                if self.net_ok is False:
-                    await self.s_nets()
-                    if (self.s_comp is True) and (self.con_att_fail <= 20):
-                        await self.connect_to_network()
-                        if self.con_att_fail > 20:
-                            # Give up
-                            return False
-            if self.net_ok is True:
-                if self.timeset is False:
-                    await self.set_time()
-                if self.webrepl_started is False:
-                    await self.start_webrepl()
-            await asyncio.sleep(5)
-
-    async def c_net(self):
-        if network.WLAN(network.STA_IF).config('essid') != '':
-            #  Already connected
-            self.use_ssid = network.WLAN(network.STA_IF).config('essid')
-            self.ip_a = network.WLAN(network.STA_IF).ifconfig()[0]
-            self.strength = network.WLAN(network.STA_IF).status('rssi')
-            self.net_ok = True
-            self.use_ssid = network.WLAN(network.STA_IF).config('essid')
-            # resolve is essid in the predefined networks presented in config
-            if self.use_ssid == SSID1:
-                self.u_pwd = PASSWORD1
-            elif self.use_ssid == SSID2:
-                self.u_pwd = PASSWORD2
-        else:
-            self.password = None
-            self.u_pwd = None
-            self.use_ssid = None
-            self.net_ok = False
-
-    async def start_webrepl(self):
-        if (self.webrepl_started is False) and (START_WEBREPL == 1):
-            if WEBREPL_PASSWORD is not None:
-                try:
-                    webrepl.start(password=WEBREPL_PASSWORD)
-                    self.webrepl_started = True
-                except OSError:
-                    self.webrepl_started = False
-                    pass
-            else:
-                try:
-                    webrepl.start()
-                    self.webrepl_started = True
-                except OSError:
-                    self.webrepl_started = False
-                    return False
-        await asyncio.sleep(5)
-
-    async def set_time(self):
-        if NTPSERVER is not None:
-            ntptime.host = NTPSERVER
-        if self.timeset is False:
-            try:
-                ntptime.settime()
-                self.timeset = True
-                self.startup_time = time()
-            except OSError as e:
-                self.timeset = False
-                return False
-        await asyncio.sleep(5)
-
-    async def s_nets(self):
-        network.WLAN(network.STA_IF).active(False)
-        await asyncio.sleep(2)
-        network.WLAN(network.STA_IF).active(True)
-        await asyncio.sleep(3)
-        try:
-            self.ssid_list = network.WLAN(network.STA_IF).scan()
-            await asyncio.sleep(5)
-        except self.ssid_list == []:
-            # No hotspots
-            return False
-        except OSError:
-            return False
-        try:
-            self.searh_list = [item for item in self.ssid_list if item[0].decode() == SSID1 or
-                               item[0].decode() == SSID2]
-        except ValueError:
-            return False
-        if len(self.searh_list) == 2:
-            if self.searh_list[0][-3] > self.searh_list[1][-3]:
-                self.use_ssid = self.searh_list[0][0].decode()
-                self.u_pwd = PASSWORD1
-                self.s_comp = True
-            else:
-                self.use_ssid = self.searh_list[1][0].decode()
-                self.u_pwd = PASSWORD2
-                self.s_comp = True
-        else:
-            self.use_ssid = self.searh_list[0][0].decode()
-            self.u_pwd = PASSWORD1
-            self.s_comp = True
-
-    async def connect_to_network(self):
-        if DHCP_NAME is not None:
-            network.WLAN(network.STA_IF).config(dhcp_hostname=DHCP_NAME)
-        try:
-            network.WLAN(network.STA_IF).connect(self.use_ssid, self.u_pwd)
-            await asyncio.sleep(10)
-        except network.WLAN(network.STA_IF).ifconfig()[0] == '0.0.0.0':
-            self.net_ok = False
-            self.con_att_fail += 1
-            return False
-        except OSError:
-            pass
-        finally:
-            if network.WLAN(network.STA_IF).ifconfig()[0] != '0.0.0.0':
-                self.use_ssid = network.WLAN(network.STA_IF).config('essid')
-                self.ip_a = network.WLAN(network.STA_IF).ifconfig()[0]
-                self.strength = network.WLAN(network.STA_IF).status('rssi')
-                self.net_ok = True
-            else:
-                self.net_ok = False
-                self.con_att_fail += 1
-        await asyncio.sleep(1)
 
 
 class TFTDisplay(object):
@@ -541,7 +398,7 @@ async def upd_status_loop():
         if net.net_ok is True:
             net.use_ssid = network.WLAN(network.STA_IF).config('essid')
             net.ip_a = network.WLAN(network.STA_IF).ifconfig()[0]
-            net.wifi_strenth = network.WLAN(network.STA_IF).status('rssi')
+            net.strength = network.WLAN(network.STA_IF).status('rssi')
 
         # For sensors tresholds, background change
         disp.d_all_ok = True
@@ -568,13 +425,11 @@ async def show_what_i_do():
     # Output is REPL
 
     while True:
-        # print("PMS dictionary: %s" % pms.pms_dictionary)
-        # print("Air quality index: %s " % airquality.aqinndex)
-        # print("CO2: %s" % co2sensor.co2_value)
-        # print("Average: %s" % co2sensor.co2_average)
-        print("WiFi Connected %s" % net.net_ok)
-        print("MQTT Connected %s" % mqtt_up)
-        # print("WiFi failed connects %s" % wifinet.connect_attemps_failed)
+        if START_NETWORK == 1:
+            print("WiFi Connected %s" % net.net_ok)
+            print("WiFi failed connects %s" % net.con_att_fail)
+        if START_MQTT == 1:
+            print("MQTT Connected %s" % mqtt_up)
         print("Memory free: %s" % gc.mem_free())
         print("Memory alloc: %s" % gc.mem_alloc())
         print("Toucscreen pressed: %s" % disp.t_tched)
@@ -586,14 +441,16 @@ async def show_what_i_do():
 # Kick in some speed, max 240000000, normal 160000000, min with WiFi 80000000
 freq(240000000)
 
-net = ConnectWiFi('wifi')
+# Network handshake
+net = WifiNet.ConnectWiFi(SSID1, PASSWORD1, SSID2, PASSWORD2, NTPSERVER, DHCP_NAME, START_WEBREPL, WEBREPL_PASSWORD)
 
-# Sensor and controller objects
 # Particle sensor
 pms = PARTICLES.PSensorPMS7003(uart=P_SEN_UART, rxpin=P_SEN_RX, txpin=P_SEN_TX)
+# Air Quality calculations
 aq = AirQuality(pms)
 # CO2 sensor
 co2s = CO2.MHZ19bCO2(uart=CO2_SEN_UART, rxpin=CO2_SEN_RX_PIN, txpin=CO2_SEN_TX_PIN)
+# BME280 sensor
 i2c = I2C(scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN))
 bmes = BmE.BME280(i2c=i2c)
 
@@ -698,7 +555,6 @@ async def mqtt_publish_loop():
                 await client.publish(TOPIC_CO2, str(co2s.co2_average), retain=0, qos=0)
 
 
-
 # For MQTT_AS
 config['server'] = MQTT_SERVER
 config['user'] = MQTT_USER
@@ -710,7 +566,8 @@ client = MQTTClient(config)
 
 async def main():
     loop = asyncio.get_event_loop()
-    loop.create_task(net.net_upd_loop())
+    if START_NETWORK == 1:
+        loop.create_task(net.net_upd_loop())
     loop.create_task(pms.read_async_loop())
     loop.create_task(co2s.read_co2_loop())
     loop.create_task(aq.upd_aq_loop())
