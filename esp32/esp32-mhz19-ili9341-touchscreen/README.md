@@ -1,6 +1,6 @@
 Update 29.01.2020:
 
-Separated WifiConnect to own class as WIFICONN_AS.py. Do not try to transfer files with PyCharm to drivers directory! It does not change targe directory \ to /.
+Separated WifiConnect to own class as WIFICONN_AS.py. Do not try to transfer files with PyCharm to drivers directory! It does not change target directory \ to /.
 Same with ampy, if you transder files, remember to use / instead of \. Example: ampy -p COM4 put drivers\WIFICONN_AS.py drivers/WIFICONN_AS.py works ok, but
 if you use \, then you will see file in the root of filesystem named drivers\\WIFICONN_AS.py
 
