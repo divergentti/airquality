@@ -2,7 +2,7 @@
 This script is used for airquality measurement. Display is ILI9341 2.8" TFT touch screen in the SPI bus,
 CO2 device is MH-Z19 NDIR-sensor, particle sensor is PMS7003 and temperature/rh/pressure sensor BME280.
 Draft code. Removed comments and refactored variablenames to save memory!
-Updated: 29.01.2020: Jari Hiltunen
+Updated: 28.01.2020: Jari Hiltunen
 """
 from machine import SPI, I2C, Pin, freq, reset, reset_cause
 import uasyncio as asyncio
@@ -19,10 +19,13 @@ import drivers.PMS7003_AS as PARTICLES
 import drivers.MHZ19B_AS as CO2
 import drivers.BME280_float as BmE
 from json import load
+import esp
+import esp32
+gc.collect()
 
 # Globals
 mqtt_up = False
-
+broker_uptime = 0
 
 try:
     f = open('parameters.py', "r")
@@ -157,12 +160,31 @@ class TFTDisplay(object):
 
     async def rot_scr(self):
         self.d_scr_active = True
-        r, r_c = await self.particle_screen()
-        await self.show_screen(r, r_c)
-        await asyncio.sleep(5)  # todo: wait touch
-        r, r_c = await self.status_monitor()
-        await self.show_screen(r, r_c)
-        await asyncio.sleep(5)  # todo: wait touch
+        self.scr_actv_time = time()
+        try:
+            r, r_c = await self.particle_screen()
+            await self.show_screen(r, r_c)
+        except TypeError:
+            pass
+        await self.wait_timer_rotate()
+        try:
+            r, r_c = await self.sensor_monitor()
+            await self.show_screen(r, r_c)
+        except TypeError:
+            pass
+        await self.wait_timer_rotate()
+        try:
+            r, r_c = await self.sys_monitor()
+            await self.show_screen(r, r_c)
+        except TypeError:
+            pass
+        await self.wait_timer_rotate()
+        try:
+            r, r_c = await self.network_monitor()
+            await self.show_screen(r, r_c)
+        except TypeError:
+            pass
+        await self.wait_timer_rotate()
         self.d_scr_active = False
         self.t_tched = False
 
@@ -182,6 +204,12 @@ class TFTDisplay(object):
                 r, r_c = await self.upd_welcome()
                 await self.show_screen(r, r_c)
 
+    async def wait_timer_rotate(self):
+        n = 0
+        while (self.d_scr_active is True) and (n <= 5 * 1000):  # todo: 5s from variable
+            await asyncio.sleep_ms(1)
+            n += 1
+
     async def wait_timer(self):
         n = 0
         while (self.t_tched is False) and (n <= self.scr_upd_ival * 1000):
@@ -189,35 +217,42 @@ class TFTDisplay(object):
             n += 1
 
     async def show_screen(self, rows, row_colours):
-        r1 = "Airquality 0.02"
-        r1_c = 'white'
-        r2 = "."
+        r1 = "Airquality v1.0"
+        r1_c = 'red'
+        r2 = "Starting"
         r2_c = 'white'
         r3 = "Wait"
-        r3_c = 'white'
-        r4 = "For"
-        r4_c = 'white'
-        r5 = "Values"
-        r5_c = 'white'
-        r6 = "."
-        r6_c = 'white'
-        r7 = "Wait"
-        r7_c = 'white'
+        r3_c = 'red'
+        r4 = "for"
+        r4_c = 'red'
+        r5 = "init"
+        r5_c = 'red'
+        r6 = "and"
+        r6_c = 'red'
+        r7 = "values."
+        r7_c = 'red'
 
-        # strip too long lines!
-
+        self.f_h = self.a_font.height
+        self.r_h = self.f_h + 2  # 2 pixel space between rows
         if rows is not None:
             if len(rows) == 7:
                 r1, r2, r3, r4, r5, r6, r7 = rows
             if len(row_colours) == 7:
                 r1_c, r2_c, r3_c, r4_c, r5_c, r6_c, r7_c = row_colours
+        # strip too long lines!
+        max_c = int((self.d.width - 20) / self.a_font.width)
+        r1 = r1[:max_c]
+        r2 = r2[:max_c]
+        r3 = r3[:max_c]
+        r4 = r4[:max_c]
+        r5 = r5[:max_c]
+        r6 = r6[:max_c]
+        r7 = r7[:max_c]
+
         if self.d_all_ok is True:
             await self.ok_bckg()
         else:
             await self.error_bckg()
-        self.a_font = self.unispace
-        self.f_h = self.a_font.height
-        self.r_h = self.f_h + 2  # 2 pixel space between rows
         self.d.draw_text(self.indent_p, 25, r1, self.a_font, self.cols[r1_c], self.cols[self.col_bckg])
         self.d.draw_text(self.indent_p, 25 + self.r_h, r2, self.a_font, self.cols[r2_c], self.cols[self.col_bckg])
         self.d.draw_text(self.indent_p, 25 + self.r_h * 2, r3, self.a_font, self.cols[r3_c], self.cols[self.col_bckg])
@@ -230,13 +265,12 @@ class TFTDisplay(object):
 
     async def ok_bckg(self):
         self.d.fill_rectangle(0, 0, self.d.width, self.d.height, self.cols['yellow'])
-        # TODO: replace excact values to display size values
-        self.d.fill_rectangle(10, 10, 300, 220, self.cols['light_green'])
+        self.d.fill_rectangle(10, 10, self.d.width-20, self.d.height-20, self.cols['light_green'])
         self.col_bckg = 'light_green'
 
     async def error_bckg(self):
         self.d.fill_rectangle(0, 0, self.d.width, self.d.height, self.cols['red'])
-        self.d.fill_rectangle(10, 10, 300, 220, self.cols['light_green'])
+        self.d.fill_rectangle(10, 10, self.d.width-20, self.d.height-20, self.cols['light_green'])
         self.col_bckg = 'light_green'
 
     @staticmethod
@@ -268,7 +302,7 @@ class TFTDisplay(object):
             r4 = "Waiting values..."
             r4_c = 'yellow'
         else:
-            r4 = "Temp: %s" % bmes.values[0]
+            r4 = "Temp: %s (DP: %sC)" % (bmes.values[0], "{:.1f}".format(bmes.dew_point))
             if float(bmes.values[0][:-1]) > TEMP_THOLD:
                 r4_c = 'red'
             else:
@@ -277,7 +311,7 @@ class TFTDisplay(object):
             r5 = "Waiting values..."
             r5_c = 'yellow'
         else:
-            r5 = "Humidity: %s" % bmes.values[2]
+            r5 = "Humidity: %s (%sM)" % (bmes.values[2], "{:.1f}".format(bmes.altitude))
             if float(bmes.values[2][:-1]) > RH_THOLD:
                 r5_c = 'red'
             else:
@@ -291,7 +325,10 @@ class TFTDisplay(object):
                 r6_c = 'red'
             else:
                 r6_c = 'blue'
-        r7 = "Touch and wait details"
+        if aq.aqinndex is None:  # no detail offering prior to AQ values
+            r7 = " "
+        else:
+            r7 = "Touch and wait details"
         r7_c = 'white'
         rows = r1, r2, r3, r4, r5, r6, r7
         row_colours = r1_c, r2_c, r3_c, r4_c, r5_c, r6_c, r7_c
@@ -343,37 +380,65 @@ class TFTDisplay(object):
         else:
             return None
 
-    async def show_network_screen(self):
-        pass
-
-    async def show_trends_screen(self):
-        pass
-
     @staticmethod
-    async def status_monitor():
-        row1 = "Memory free: %s" % gc.mem_free()
+    async def sensor_monitor():
+        row1 = "3. Sensor monitor"
         row1_colour = 'black'
-        row2 = "Uptime: %s" % (time() - net.startup_time)
+        row2 = "MHZ19B CRC errors: %s " % co2s.crc_errors
         row2_colour = 'blue'
-        row3 = "WiFi IP: %s" % net.ip_a
+        row3 = "MHZ19B Range errors: %s" % co2s.range_errors
         row3_colour = 'blue'
-        row4 = "WiFi Strength: %s" % net.strength
+        row4 = "PMS7003 version %s" % pms.pms_dictionary['VERSION']
         row4_colour = 'blue'
-        row5 = "MHZ19B CRC errors: %s " % co2s.crc_errors
-        row5_colour = 'white'
-        row6 = "MHZ19B Range errors: %s" % co2s.range_errors
-        row6_colour = 'white'
-        row7 = "PMS7003 version %s" % pms.pms_dictionary['VERSION']
-        row7_colour = 'white'
+        row5 = "BME280 address %s" % bmes.address
+        row5_colour = 'blue'
+        row6 = "BME280 sealevel %s" % bmes.sealevel
+        row6_colour = 'blue'
+        row7 = " Free row "
+        row7_colour = 'light_green'
         rows = row1, row2, row3, row4, row5, row6, row7
         row_colours = row1_colour, row2_colour, row3_colour, row4_colour, row5_colour, row6_colour, row7_colour
         return rows, row_colours
 
-    async def show_display_sleep_screen(self):
-        pass
+    @staticmethod
+    async def sys_monitor():
+        row1 = "4. System monitor"
+        row1_colour = 'black'
+        row2 = "Uptime: %s" % (time() - net.startup_time)
+        row2_colour = 'blue'
+        row3 = "Mem free: %s" % gc.mem_free()
+        row3_colour = 'blue'
+        row4 = "Mem allocated: %s" % gc.mem_alloc()
+        row4_colour = 'blue'
+        row5 = "Flash size: %s " % esp.flash_size()
+        row5_colour = 'blue'
+        row6 = "MCU Temp: %sC" % ("{:.1f}".format(((float(esp32.raw_temperature())-32.0) * 5/9)))
+        row6_colour = 'blue'
+        row7 = "Hall sensor %s" % esp32.hall_sensor()
+        row7_colour = 'blue'
+        rows = row1, row2, row3, row4, row5, row6, row7
+        row_colours = row1_colour, row2_colour, row3_colour, row4_colour, row5_colour, row6_colour, row7_colour
+        return rows, row_colours
 
-    async def show_network_setup_screen(self):
-        pass
+    @staticmethod
+    async def network_monitor():
+        row1 = "5. Network monitor"
+        row1_colour = 'black'
+        row2 = "WiFi IP: %s" % net.ip_a
+        row2_colour = 'blue'
+        row3 = "WiFi AP: %s" % net.use_ssid
+        row3_colour = 'blue'
+        row4 = "WiFi Strength: %s" % net.strength
+        row4_colour = 'blue'
+        row5 = "WiFi fail: %s" % net.con_att_fail
+        row5_colour = 'blue'
+        row6 = "MQTT Up: %s s." % mqtt_up
+        row6_colour = 'blue'
+        row7 = "Broker up %s" % broker_uptime[:-8]
+        row7_colour = 'blue'
+        rows = row1, row2, row3, row4, row5, row6, row7
+        row_colours = row1_colour, row2_colour, row3_colour, row4_colour, row5_colour, row6_colour, row7_colour
+        return rows, row_colours
 
 
 class AirQuality(object):
@@ -430,12 +495,13 @@ async def show_what_i_do():
             print("WiFi failed connects %s" % net.con_att_fail)
         if START_MQTT == 1:
             print("MQTT Connected %s" % mqtt_up)
+            print("MQTT broker uptime %s" % broker_uptime)
         print("Memory free: %s" % gc.mem_free())
         print("Memory alloc: %s" % gc.mem_alloc())
         print("Toucscreen pressed: %s" % disp.t_tched)
         print("Details screen active: %s" % disp.d_scr_active)
         print("-------")
-        await asyncio.sleep(1)
+        await asyncio.sleep(5)
 
 
 # Kick in some speed, max 240000000, normal 160000000, min with WiFi 80000000
@@ -479,7 +545,7 @@ async def mqtt_up_loop():
         config['connect_coro'] = mqtt_subscribe
         config['ssid'] = net.use_ssid
         config['wifi_pw'] = net.u_pwd
-        MQTTClient.DEBUG = True
+        MQTTClient.DEBUG = False
         client = MQTTClient(config)
         await client.connect()
         mqtt_up = True
@@ -488,27 +554,30 @@ async def mqtt_up_loop():
     while True:
         # await self.mqtt_subscribe()
         await asyncio.sleep(5)
-        print('mqtt-publish', n)
+        if DEBUG_SCREEN_ACTIVE == 1:
+            print('mqtt-publish', n)
         await client.publish('result', '{}'.format(n), qos=1)
         n += 1
 
 
 async def mqtt_subscribe(client):
     # If "client" is missing, you get error from line 538 in MQTT_AS.py (1 given, expected 0)
-    await client.subscribe('$SYS/broker/messages/publish/dropped:', 0)
+    await client.subscribe('$SYS/broker/uptime', 1)
 
 
 def update_mqtt_status(topic, msg, retained):
-    print((topic, msg, retained))
+    global broker_uptime
+    if DEBUG_SCREEN_ACTIVE == 1:
+        print((topic, msg, retained))
+    broker_uptime = msg
+
     """ Subscribe mqtt topics for correction multipliers and such. As an example, if
-                temperature measurement is linearly wrong +0,8C, send substraction via mqtt-topic. If measurement is 
-                not linearly wrong, pass range + correction to the topics.
-                # print("Topic: %s, message %s" % (topic, msg))
-                Example:
-                if topic == '/device_id/temp/correction/':
-                correction = float(msg)
-                return correction
-            """
+        temperature measurement is linearly wrong +0,8C, send substraction via mqtt-topic. If measurement is 
+        not linearly wrong, pass range + correction to the topics.
+        Example:
+        if topic == '/device_id/temp/correction/':
+            correction = float(msg)
+            return correction """
 
 
 async def mqtt_publish_loop():
