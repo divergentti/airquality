@@ -2,7 +2,7 @@
 This script is used for airquality measurement. Display is ILI9341 2.8" TFT touch screen in the SPI bus,
 CO2 device is MH-Z19 NDIR-sensor, particle sensor is PMS7003 and temperature/rh/pressure sensor BME280.
 Draft code. Removed comments and refactored variablenames to save memory!
-Updated: 29.01.2020: Jari Hiltunen
+Updated: 29.01.2021: Jari Hiltunen
 """
 from machine import SPI, I2C, Pin, freq, reset, reset_cause
 import uasyncio as asyncio
