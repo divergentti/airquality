@@ -3,6 +3,7 @@ Update 30.01.2021:
 Runtime now 171468 seconds, no single reboots. Code performs well.
 - Fusion360 drawing for the the display at https://bit.ly/3ahuRlR
 - Fusion360 drawing for the PMS7003 sensor at https://bit.ly/3j41YNR
+- Fusion360 drawing for the PMZ19B sensor at https://bit.ly/2MckpnS
 - ESP32 SMD and DevBoard drawings already in the same repository and at Thingsverse https://www.thingiverse.com/divergentti/designs
 
 
