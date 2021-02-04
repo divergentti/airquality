@@ -4,7 +4,7 @@ Update 4.2.2021 (project day 22):
 - Fusion360 drawing https://bit.ly/3cRUtZF
 - Uptime now > 500 000 seconds. Today I have to rip off sensors and install to the case and check if the case performs well too.
 - Video: https://youtu.be/wdtEFb3794w
-
+- BME280 must be splitted to separate case, because the display and MCU heat warms up sensor > 6C. It seems that BME280 chip do not ventilate enough.
 
 Update 30.01.2021:
 
