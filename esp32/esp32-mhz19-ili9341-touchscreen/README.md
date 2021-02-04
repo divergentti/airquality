@@ -3,7 +3,7 @@ Update 4.2.2021 (project day 22):
 - Thingsverse: https://www.thingiverse.com/thing:4748310/files
 - Fusion360 drawing https://bit.ly/3cRUtZF
 - Uptime now > 500 000 seconds. Today I have to rip off sensors and install to the case and check if the case performs well too.
-- Video: 
+- Video: https://youtu.be/wdtEFb3794w
 
 
 Update 30.01.2021:
