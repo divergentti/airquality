@@ -1,3 +1,8 @@
+Update 6.2.2021:
+- New case design for 3D printing at https://www.thingiverse.com/thing:4752043
+- Drawing at https://gallery.autodesk.com/projects/152573/assets/580774/embed
+- I try to avoid convection with a lollipop-like case for the BME280. Test results in a few days.
+
 Update 4.2.2021 (project day 22): 
 - First version of the case seems to work fine for MCU and Display. Display install is a bit complex.
 - Thingsverse: https://www.thingiverse.com/thing:4748310/files
