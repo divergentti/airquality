@@ -1,3 +1,8 @@
+Update 7.2.2021:
+- New case is OK, but I broke PMS7003 connector and it is 1.27 mm pitch. I have to wait pitch strip connector bar to arrive from China before I can finalize the project.
+- BME280 is the lollipop seems to perform great, accuracy is now good.
+
+
 Update 6.2.2021:
 - New case design for 3D printing at https://www.thingiverse.com/thing:4752043
 - Drawing at https://gallery.autodesk.com/projects/152573/assets/580774/embed
