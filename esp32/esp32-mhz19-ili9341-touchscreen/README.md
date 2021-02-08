@@ -1,6 +1,7 @@
 Update 7.2.2021:
 - New case is OK, but I broke PMS7003 connector and it is 1.27 mm pitch. I have to wait pitch strip connector bar to arrive from China before I can finalize the project.
-- BME280 is the lollipop seems to perform great, accuracy is now good.
+- BME280 in the lollipop seems to perform great, accuracy is now good.
+- Video about case design https://www.youtube.com/watch?v=CMfNU1NC0Rs&feature=emb_logo
 
 
 Update 6.2.2021:
