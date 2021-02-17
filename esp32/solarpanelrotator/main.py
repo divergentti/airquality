@@ -35,6 +35,9 @@ Stepper motor control: stepper motor is rotated back and fort x steps and during
 
 7.12.2020 Jari Hiltunen
 8.12.2020 Initial version ready before class splitting. Stepper shall follow the sun.
+17.2.2021 Added limiter switch operation. Limiter switch is installed so that turning counterclockwise switch
+          puller pushes the switch down. Counterwise turn must be limited to maximum steps (about 340 degrees rotation).
+          Added solarpanel voltage reading.
 
 """
 
@@ -50,7 +53,7 @@ try:
     f = open('parameters.py', "r")
     from parameters import SSID1, SSID2, PASSWORD1, PASSWORD2, MQTT_SERVER, MQTT_PASSWORD, MQTT_USER, MQTT_PORT, \
         CLIENT_ID, BATTERY_ADC_PIN, TOPIC_ERRORS, STEPPER1_PIN1, STEPPER1_PIN2, STEPPER1_PIN3, STEPPER1_PIN4, \
-        STEPPER1_DELAY
+        STEPPER1_DELAY, MICROSWITCH_PIN, SOLARPANEL_ADC_PIN
 except OSError:  # open failed
     print("parameter.py-file missing! Can not continue!")
     raise
@@ -60,6 +63,8 @@ except OSError:  # open failed
 batteryreader = ADC(Pin(BATTERY_ADC_PIN))
 # Attennuation below 1 volts 11 db
 batteryreader.atten(ADC.ATTN_11DB)
+solarpanelreader = ADC(Pin(SOLARPANEL_ADC_PIN))
+solarpanelreader.atten(ADC.ATTN_11DB)
 
 """ Global variables """
 BATTERY_ADC_MULTIPLIER = 0.0018
@@ -89,15 +94,16 @@ def restart_and_reconnect():
     reset()
 
 
-class StepperMotor:
+class StepperMotor(object):
     """ ULN2003-based control, half steps. Asynchronous setup. """
 
     def __init__(self, in1, in2, in3, in4, indelay):
         self.motor = Steppermotor.create(Pin(in1, Pin.OUT), Pin(in2, Pin.OUT), Pin(in3, Pin.OUT),
                                          Pin(in4, Pin.OUT), delay=indelay)
-        self.battery_voltage = None
+        self.stepdelay = indelay
+        self.solar_voltage = None
         self.steps_voltages = []
-        self.steps_to_rotate = 10  # Default for testing
+        self.max_steps_to_rotate = 900  # almost full round
         self.max_voltage = None
         self.step_max_index = None
         self.panel_time = None
@@ -106,62 +112,83 @@ class StepperMotor:
         self.degrees_minute = 360 / (24 * 60)
         self.full_rotation = int(4075.7728395061727 / 8)  # http://www.jangeox.be/2013/10/stepper-motor-28byj-48_25.html
         self.steps_for_minute = int((24 * 60) / self.full_rotation)  # 0.17 steps rounded
+        self.table_turning = False
+        self.steps_taken = 0
 
-    async def turn_x_degrees_right(self, degrees):
-        self.motor.angle(degrees)
-
-    async def turn_x_degrees_left(self, degrees):
-        self.motor.angle(degrees, -1)
-
-    async def turn_x_steps_right(self, steps):
-        self.motor.step(steps)
-
-    async def turn_x_steps_left(self, steps):
-        self.motor.step(steps, -1)
-
-    async def zero_to_potision(self):
+    async def zero_to_position(self):
         self.motor.reset()
 
-    async def search_best_voltage_position(self, stepstorotate=10):
-        """ Limiter switches not yet supported. Stepstorotate to both directions from startup! """
+    async def step(self, direction, overrideswitch=False):
+        if direction == "cw":
+            turn = -1
+        elif direction == "ccw":
+            turn = 1
+        else:
+            return False
+
+        if overrideswitch is False:
+            # switch = 1 means switch is open
+            if limiter_switch.value() == 1:
+                try:
+                    self.motor.step(1, turn)
+                    self.table_turning = True
+                    await asyncio.sleep_ms(self.stepdelay)
+                except OSError as ex:
+                    print('ERROR %s stepping %s:' % (ex, direction))
+                    await error_reporting('ERROR %s stepping %s' % (ex, direction))
+                    self.table_turning = False
+
+        if overrideswitch is True:
+            try:
+                self.motor.step(1, turn)
+                self.table_turning = True
+            except OSError as ex:
+                print('ERROR %s stepping %s:' % (ex, direction))
+                await error_reporting('ERROR %s stepping %s' % (ex, direction))
+                self.table_turning = False
+            await asyncio.sleep_ms(self.stepdelay)
+
+    async def turn_to_limiter(self):
+        print("Starting rotation counterclockwise until limiter switch turns off...")
+        starttime = utime.ticks_ms()
+        while limiter_switch.value() == 1 and ((utime.ticks_ms() - starttime) < 90000):
+            await self.step("ccw")
+            self.steps_taken = +1
+        print("Switch on, taking a few steps back to open the switch...")
+        self.steps_taken = 0
+        # Take a few steps back to open the switch
+        while limiter_switch.value() == 0:
+            await self.step("cw", overrideswitch=True)
+            self.steps_taken = +1
+        self.table_turning = False
+
+    async def search_best_voltage_position(self):
         print("Finding highest voltage direction for the solar panel. Wait.")
-        self.steps_to_rotate = stepstorotate
-        await self.zero_to_potision()    # typo is in the class
+        await self.turn_to_limiter()
         #  Look steps clockwise
-        print("Turning panel clockwise %s steps" % self.steps_to_rotate)
-        for i in range(0, self.steps_to_rotate):
-            await self.turn_x_steps_right(1)
-            await asyncio.sleep(1)
-            self.battery_voltage = batteryreader.read()
-            if self.battery_voltage is not None:
-                self.steps_voltages.append(self.battery_voltage)
-        await self.turn_x_steps_left(self.steps_to_rotate)
-        await asyncio.sleep(1)
-        #  Look steps counterclockwise
-        print("Turning panel counterclockwise %s steps" % self.steps_to_rotate)
-        for i in range(0, self.steps_to_rotate):
-            await self.turn_x_steps_left(1)
-            await asyncio.sleep(1)
-            self.battery_voltage = batteryreader.read()
-            if self.battery_voltage is not None:
-                self.steps_voltages.append(self.battery_voltage)
-        await self.turn_x_steps_right(self.steps_to_rotate)
-        if len(self.steps_voltages) < (2 * self.steps_to_rotate):
-            print("Some values missing! Should be %s, is %s" % (2 * self.steps_to_rotate, len(self.steps_voltages)))
-            return None
-        #  Now we have voltages to both directions, check which one has highest voltage. First occurence.
+        print("Turning panel clockwise %s steps" % self.max_steps_to_rotate)
+        for i in range(0, self.max_steps_to_rotate):
+            await self.step("cw")
+            await asyncio.sleep_ms(10)
+            self.solar_voltage = solarpanelreader.read()
+            if self.solar_voltage is not None:
+                print("Voltage %s" % self.solar_voltage)
+                self.steps_voltages.append(self.solar_voltage)
+        if len(self.steps_voltages) < self.max_steps_to_rotate:
+            print("Some values missing! Should be %s, is %s" % (self.max_steps_to_rotate, len(self.steps_voltages)))
+            return False
+        #  Now we have voltages for each step, check which one has highest voltage. First occurence.
         self.max_voltage = max(self.steps_voltages)
         self.step_max_index = self.steps_voltages.index(max(self.steps_voltages))
         #  Panel at highest solar power direction, if time is correct, calculate direction
         self.panel_time = utime.localtime()
         #  The sun shall be about south at LOCAL 12:00 winter time (summer +1h)
         self.direction = (int(self.panel_time[3] * 60) + int(self.panel_time[4])) * self.degrees_minute
-        if self.step_max_index <= self.steps_to_rotate:
-            """ Maximum voltage value found from first right turn, maximum counterwise """
-            await self.turn_x_steps_right(self.step_max_index)
-        elif self.step_max_index > self.steps_to_rotate:
-            """ Maximum voltage value found from second turn, maximum counterclocwise """
-            await self.turn_x_steps_left(self.step_max_index - self.steps_to_rotate)
+        """ Maximum voltage value found. Turn to maximum"""
+        print("Rotating back to maximum %s steps" % (self.max_steps_to_rotate - self.step_max_index))
+        for i in range(0, (self.max_steps_to_rotate - self.step_max_index)):
+            await self.step("ccw")
+        self.table_turning = False
 
     async def follow_the_sun_loop(self):
         #  Execute once a minute. Drift 0.17 steps / minute, add step each 6 minutes !
@@ -172,15 +199,19 @@ class StepperMotor:
                               utime.mktime(self.panel_time)
             #  If second is 00, do turn
             if int(utime.localtime()[5]) == 0:
-                print("Rotate %s steps right." % self.steps_for_minute)
-                await self.turn_x_steps_right(self.steps_for_minute)
+                print("Rotate %s steps counterwise." % self.steps_for_minute)
+                self.table_turning = True
+                for i in range(0, self.steps_for_minute):
+                    await self.step("cw")
                 self.direction = self.direction + self.degrees_minute
                 await asyncio.sleep(1)
                 c += 1
                 if c == 6:
                     print("Rotate 1 step right for correction.")
-                    await self.turn_x_steps_right(1)
+                    await self.step("cw")
                     c = 0
+            else:
+                self.table_turning = False
             await asyncio.sleep_ms(500)
 
 
@@ -213,12 +244,31 @@ async def mqtt_report():
                 await client.publish(AIHE_CO2, str(kaasusensori.eCO2_keskiarvo), retain=False, qos=0) """
 
 
+#  First initialize limiter_switch object, then panel motor
+limiter_switch = Pin(MICROSWITCH_PIN, Pin.IN, Pin.PULL_UP)
 panel_motor = StepperMotor(STEPPER1_PIN1, STEPPER1_PIN2, STEPPER1_PIN3, STEPPER1_PIN4, STEPPER1_DELAY)
+
+
+async def read_battery_level():
+    while True:
+        pass
+        # print("Battery level: %s" % batteryreader.read())
+
+
+async def report_what_i_do():
+    while True:
+        print("Limiter switch is %s" % limiter_switch.value())
+        print("Turntable turning %s" % panel_motor.table_turning)
+        print("Panel direction: %s, uptime %s" % (panel_motor.direction, panel_motor.uptime))
+        await asyncio.sleep(2)
 
 
 async def main():
     MQTTClient.DEBUG = False
     # await client.connect()
+    loop = asyncio.get_event_loop()
+    loop.create_task(read_battery_level())
+    loop.create_task(report_what_i_do())
 
     #  Find best step and direction for the solar panel. Do once when boot, then once a day
     if panel_motor.panel_time is None:
@@ -229,10 +279,14 @@ async def main():
         await panel_motor.search_best_voltage_position()
         print("Best position: %s/%s degrees, voltage %s, step %s.  "
               % (panel_motor.panel_time, panel_motor.direction, panel_motor.max_voltage, panel_motor.step_max_index))
-    asyncio.create_task(panel_motor.follow_the_sun_loop())
 
-    while True:
-        print("Panel direction: %s, uptime %s" % (panel_motor.direction, panel_motor.uptime))
-        await asyncio.sleep(5)
+    loop.create_task(panel_motor.follow_the_sun_loop())
 
-asyncio.run(main())
+    loop.run_forever()
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except MemoryError:
+        reset()
