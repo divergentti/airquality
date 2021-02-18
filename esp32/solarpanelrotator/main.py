@@ -98,18 +98,9 @@ except OSError:
     raise
 
 
-""" Global objects """
-batteryreader = ADC(Pin(BATTERY_ADC_PIN))
-# Attennuation below 1 volts 11 db
-batteryreader.atten(ADC.ATTN_11DB)
-solarpanelreader = ADC(Pin(SOLARPANEL_ADC_PIN))
-solarpanelreader.atten(ADC.ATTN_11DB)
-
-""" Global variables """
-
 
 class StepperMotor(object):
-    """ ULN2003-based control, half steps. Asynchronous setup. """
+    """ ULN2003-based control, half steps. Gear ratio 0.5 : 1 """
 
     def __init__(self, in1, in2, in3, in4, indelay):
         self.motor = Steppermotor.create(Pin(in1, Pin.OUT), Pin(in2, Pin.OUT), Pin(in3, Pin.OUT),
@@ -253,6 +244,13 @@ def mqtt_report():
         MQTT_REPORTED = True
 
 
+""" Global objects """
+batteryreader = ADC(Pin(BATTERY_ADC_PIN))
+# Attennuation below 1 volts 11 db
+batteryreader.atten(ADC.ATTN_11DB)
+solarpanelreader = ADC(Pin(SOLARPANEL_ADC_PIN))
+solarpanelreader.atten(ADC.ATTN_11DB)
+
 #  First initialize limiter_switch object, then panel motor
 limiter_switch = Pin(MICROSWITCH_PIN, Pin.IN, Pin.PULL_UP)
 panel_motor = StepperMotor(STEPPER1_PIN1, STEPPER1_PIN2, STEPPER1_PIN3, STEPPER1_PIN4, STEPPER1_DELAY)
@@ -289,7 +287,7 @@ def main():
               % (panel_motor.panel_time, panel_motor.direction, panel_motor.max_voltage, panel_motor.step_max_index))
 
     # TODO: read from file time we have had best voltage position and correct panel direction if needed
-    
+
     # TODO: mqtt_report()
 
     #  Deactivate seoncary circuit
