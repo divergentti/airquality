@@ -1,8 +1,16 @@
 """
-For ESP32-Wrover or ESP32-Wroom. Controls solar panel towards the sun peak position.
+For ESP32-Wrover or ESP32-Wroom in ULP (Ultra Low Power) mode.
 
-Battery voltage measurement: voltage splitter 2 x 100 kOhm resistors so that another end is at + , another -
- and from the middle to the IO-port (BATTERY_ADC_PIN).
+Turns solar panel towards the sun and measures with BME280 temperature, humidity and pressure and sends information
+to the mqtt broker and then sleeps.
+
+Motor: 5V 28BYJ-48-5V and Steppermotor.py original https://github.com/IDWizard/uln2003/blob/master/uln2003.py
+Solarpanel: CNC110x69-5 volts
+Batteries: NCR18650B
+Charger: TP4056 USB 5V 1A 18650 charger
+
+Battery voltage and solar panel voltage measurement: voltage splitter 2 x 100 kOhm resistors so that another end
+is at + , another - and from the middle to the IO-port (BATTERY_ADC_PIN and SOLARPANEL_ADC_PIN).
 
  ESP32 ADC in 12 bit 4096 steps, when 3.3 volts / 4096 = 0,0008056V per step, but
  because we use voltage splitter, value needs to be multiplied with 2, when each change in reading means
@@ -25,37 +33,68 @@ Battery voltage measurement: voltage splitter 2 x 100 kOhm resistors so that ano
 
  Best educated guess for the proper multiplies is 0.0018V per bit with 11DB attennuation.
 
-Stepper motor control: stepper motor is rotated back and fort x steps and during each step voltage from the
- solar panel is measured. A list of steps and voltages is created and maximum is selected. If maximum resides
- in clockwise steps, within 1 - x steps, we select highest voltage step, otherwise step must be in counterclockwise
- steps, steps + step. Once this phase is complete, we know how much we need to turn solar panel to get
- always highest input. Last we check time, calculate how much we must turn stepper motor each minute to keep on
- track with the sun. Rough estimate is to use localtime 12:00 for south position. Calibration is completed once a day.
+
+Stepper motor control: stepper motor is rotated to the limiter switch (zero position) and then almost full round.
+During rotation, each step measures solarpanel voltage and best direction (first peak voltage) is chosen.
+This also estimates direction of the sun, because if clock is set correctly, we can calculate in which direction
+the sun is, which also means best voltage.
+
+3D model for the case at https://gallery.autodesk.com/fusion360/users/4HPYK2VXATYM
+3D printable case at https://www.thingiverse.com/thing:4758620
 
 
-7.12.2020 Jari Hiltunen
+7.12.2020 Jari Hiltunen project start
 8.12.2020 Initial version ready before class splitting. Stepper shall follow the sun.
 17.2.2021 Added limiter switch operation. Limiter switch is installed so that turning counterclockwise switch
           puller pushes the switch down. Counterwise turn must be limited to maximum steps (about 340 degrees rotation).
           Added solarpanel voltage reading.
+18.2.2021: Changed to non-asynchronous model, because it does not make sense to have async in ULP mode.
+           Corrected voltage values to conform voltage splitter values (divide by 2).
+           Ready to go with MQTT and BME280
 
 """
 
 import Steppermotor
-from machine import Pin, ADC, reset
-import uasyncio as asyncio
-import utime
+from machine import I2C, Pin, ADC, reset, deepsleep
+from utime import sleep, time, localtime, mktime, ticks_ms, ticks_us
 import gc
-from MQTT_AS import MQTTClient, config
+from umqttsimple import MQTTClient
 import network
+from json import load
+import BME280_float as BmE
 
 try:
     f = open('parameters.py', "r")
     from parameters import SSID1, SSID2, PASSWORD1, PASSWORD2, MQTT_SERVER, MQTT_PASSWORD, MQTT_USER, MQTT_PORT, \
         CLIENT_ID, BATTERY_ADC_PIN, TOPIC_ERRORS, STEPPER1_PIN1, STEPPER1_PIN2, STEPPER1_PIN3, STEPPER1_PIN4, \
-        STEPPER1_DELAY, MICROSWITCH_PIN, SOLARPANEL_ADC_PIN
+        STEPPER1_DELAY, MICROSWITCH_PIN, SOLARPANEL_ADC_PIN, TOPIC_TEMP, TOPIC_PRESSURE, TOPIC_HUMIDITY, \
+        TOPIC_BATTERY_VOLTAGE, I2C_SCL_PIN, I2C_SDA_PIN, SECONDARY_ACTIVATION_PIN
+    f.close()
 except OSError:  # open failed
     print("parameter.py-file missing! Can not continue!")
+    raise
+
+try:
+    f = open('runtimeconfig.json', 'r')
+    with open('runtimeconfig.json') as config_file:
+        runtimedata = load(config_file)
+        f.close()
+        TURNTABLE_ZEROTIME = runtimedata['TURNTABLE_ZEROTIME']
+        LAST_BATTERY_VOLTAGE = runtimedata['LAST_BATTERY_VOLTAGE']
+        BATTERY_LOW_VOLTAGE = runtimedata['BATTERY_LOW_VOLTAGE']
+        BATTERY_LOW_VOLTAGE = BATTERY_LOW_VOLTAGE / 2  # due to voltage splitter
+        BATTERY_ADC_MULTIPLIER = runtimedata['BATTERY_ADC_MULTIPLIER']
+        LAST_UPTIME = runtimedata['LAST_UPTIME']
+        LAST_TEMP = runtimedata['LAST_TEMP']
+        LAST_HUMIDITY = runtimedata['LAST_HUMIDITY']
+        LAST_PRESSURE = runtimedata['LAST_PRESSURE']
+        ULP_SLEEP_TIME = runtimedata['ULP_SLEEP_TIME']
+        KEEP_AWAKE_TIME = runtimedata['KEEP_AWAKE_TIME']
+        DEBUG_ENABLED = runtimedata['DEBUG_ENABLED']
+
+except OSError:
+    print("Runtime parameters missing. Can not continue!")
+    sleep(30)
     raise
 
 
@@ -67,31 +106,6 @@ solarpanelreader = ADC(Pin(SOLARPANEL_ADC_PIN))
 solarpanelreader.atten(ADC.ATTN_11DB)
 
 """ Global variables """
-BATTERY_ADC_MULTIPLIER = 0.0018
-previous_mqtt = utime.time()
-use_wifi_password = None
-
-
-""" Network setup"""
-if network.WLAN(network.STA_IF).config('essid') == SSID1:
-    use_wifi_password = PASSWORD1
-elif network.WLAN(network.STA_IF).config('essid') == SSID2:
-    use_wifi_password = PASSWORD2
-
-config['server'] = MQTT_SERVER
-config['ssid'] = network.WLAN(network.STA_IF).config('essid')
-config['wifi_pw'] = use_wifi_password
-config['user'] = MQTT_USER
-config['password'] = MQTT_PASSWORD
-config['port'] = MQTT_PORT
-config['client_id'] = CLIENT_ID
-client = MQTTClient(config)
-
-
-def restart_and_reconnect():
-    #  Last resort
-    utime.sleep(5)
-    reset()
 
 
 class StepperMotor(object):
@@ -102,23 +116,32 @@ class StepperMotor(object):
                                          Pin(in4, Pin.OUT), delay=indelay)
         self.stepdelay = indelay
         self.solar_voltage = None
+        self.battery_voltage = None
+        self.battery_low_voltage = BATTERY_LOW_VOLTAGE
         self.steps_voltages = []
-        self.max_steps_to_rotate = 900  # almost full round
+        self.max_steps_to_rotate = 900  # 1018 steps is full round, but due to microswitch reduce
         self.max_voltage = None
         self.step_max_index = None
         self.panel_time = None
-        self.uptime = 0
         self.direction = None
         self.degrees_minute = 360 / (24 * 60)
+        # Per 28BYJ motor axel, ~509 steps for full round
         self.full_rotation = int(4075.7728395061727 / 8)  # http://www.jangeox.be/2013/10/stepper-motor-28byj-48_25.html
-        self.steps_for_minute = int((24 * 60) / self.full_rotation)  # 0.17 steps rounded
+        #  0.5 spur gear ratio (9:18 gears), half steps multiply with 2, ~ 1018 steps full round
+        self.steps_for_minute = int((24 * 60) / (self.full_rotation * 2))  # 1440 / ~1018 ~ 1.4 steps per minute
         self.table_turning = False
         self.steps_taken = 0
 
-    async def zero_to_position(self):
+    def zero_to_position(self):
         self.motor.reset()
 
-    async def step(self, direction, overrideswitch=False):
+    def step(self, direction, overrideswitch=False):
+        self.battery_voltage = batteryreader.read() / 1000
+        if self.battery_voltage < self.battery_low_voltage:
+            if DEBUG_ENABLED == 1:
+                print("Battery voltage %s too low!" % self.battery_voltage)
+            # Report low voltage and sleep
+            return
         if direction == "cw":
             turn = -1
         elif direction == "ccw":
@@ -132,10 +155,10 @@ class StepperMotor(object):
                 try:
                     self.motor.step(1, turn)
                     self.table_turning = True
-                    await asyncio.sleep_ms(self.stepdelay)
                 except OSError as ex:
-                    print('ERROR %s stepping %s:' % (ex, direction))
-                    await error_reporting('ERROR %s stepping %s' % (ex, direction))
+                    if DEBUG_ENABLED == 1:
+                        print('ERROR %s stepping %s:' % (ex, direction))
+                    error_reporting('ERROR %s stepping %s' % (ex, direction))
                     self.table_turning = False
 
         if overrideswitch is True:
@@ -143,150 +166,148 @@ class StepperMotor(object):
                 self.motor.step(1, turn)
                 self.table_turning = True
             except OSError as ex:
-                print('ERROR %s stepping %s:' % (ex, direction))
-                await error_reporting('ERROR %s stepping %s' % (ex, direction))
+                if DEBUG_ENABLED == 1:
+                    print('ERROR %s stepping %s:' % (ex, direction))
+                error_reporting('ERROR %s stepping %s' % (ex, direction))
                 self.table_turning = False
-            await asyncio.sleep_ms(self.stepdelay)
 
-    async def turn_to_limiter(self):
-        print("Starting rotation counterclockwise until limiter switch turns off...")
-        starttime = utime.ticks_ms()
-        while limiter_switch.value() == 1 and ((utime.ticks_ms() - starttime) < 90000):
-            await self.step("ccw")
+    def turn_to_limiter(self):
+        if DEBUG_ENABLED == 1:
+            print("Starting rotation counterclockwise until limiter switch turns off...")
+        starttime = ticks_ms()
+        while limiter_switch.value() == 1 and ((ticks_ms() - starttime) < 90000):
+            self.step("ccw")
             self.steps_taken = +1
-        print("Switch on, taking a few steps back to open the switch...")
+        if DEBUG_ENABLED == 1:
+            print("Switch on, taking a few steps back to open the switch...")
         self.steps_taken = 0
         # Take a few steps back to open the switch
         while limiter_switch.value() == 0:
-            await self.step("cw", overrideswitch=True)
+            self.step("cw", overrideswitch=True)
             self.steps_taken = +1
         self.table_turning = False
 
-    async def search_best_voltage_position(self):
-        print("Finding highest voltage direction for the solar panel. Wait.")
-        await self.turn_to_limiter()
+    def search_best_voltage_position(self):
+        self.battery_voltage = batteryreader.read() / 1000
+        if self.battery_voltage < self.battery_low_voltage:
+            if DEBUG_ENABLED == 1:
+                print("Battery voltage %s too low!" % self.battery_voltage)
+                # Report low voltage and sleep
+            return
+        if DEBUG_ENABLED == 1:
+            print("Finding highest voltage direction for the solar panel. Wait.")
+        self.turn_to_limiter()
         #  Look steps clockwise
-        print("Turning panel clockwise %s steps" % self.max_steps_to_rotate)
+        if DEBUG_ENABLED == 1:
+            print("Turning panel clockwise %s steps" % self.max_steps_to_rotate)
         for i in range(0, self.max_steps_to_rotate):
-            await self.step("cw")
-            await asyncio.sleep_ms(10)
-            self.solar_voltage = solarpanelreader.read()
+            self.step("cw")
+            self.solar_voltage = (solarpanelreader.read() / 1000) / 2  # due to voltage splitter
             if self.solar_voltage is not None:
                 print("Voltage %s" % self.solar_voltage)
                 self.steps_voltages.append(self.solar_voltage)
         if len(self.steps_voltages) < self.max_steps_to_rotate:
-            print("Some values missing! Should be %s, is %s" % (self.max_steps_to_rotate, len(self.steps_voltages)))
+            if DEBUG_ENABLED == 1:
+                print("Some values missing! Should be %s, is %s" % (self.max_steps_to_rotate, len(self.steps_voltages)))
             return False
         #  Now we have voltages for each step, check which one has highest voltage. First occurence.
         self.max_voltage = max(self.steps_voltages)
         self.step_max_index = self.steps_voltages.index(max(self.steps_voltages))
         #  Panel at highest solar power direction, if time is correct, calculate direction
-        self.panel_time = utime.localtime()
+        self.panel_time = localtime()
         #  The sun shall be about south at LOCAL 12:00 winter time (summer +1h)
         self.direction = (int(self.panel_time[3] * 60) + int(self.panel_time[4])) * self.degrees_minute
         """ Maximum voltage value found. Turn to maximum"""
-        print("Rotating back to maximum %s steps" % (self.max_steps_to_rotate - self.step_max_index))
+        if DEBUG_ENABLED == 1:
+            print("Rotating back to maximum %s steps" % (self.max_steps_to_rotate - self.step_max_index))
         for i in range(0, (self.max_steps_to_rotate - self.step_max_index)):
-            await self.step("ccw")
+            self.step("ccw")
         self.table_turning = False
 
-    async def follow_the_sun_loop(self):
-        #  Execute once a minute. Drift 0.17 steps / minute, add step each 6 minutes !
-        c = 0
-        while True:
-            if self.panel_time is not None:
-                self.uptime = utime.mktime(utime.localtime()) - \
-                              utime.mktime(self.panel_time)
-            #  If second is 00, do turn
-            if int(utime.localtime()[5]) == 0:
-                print("Rotate %s steps counterwise." % self.steps_for_minute)
-                self.table_turning = True
-                for i in range(0, self.steps_for_minute):
-                    await self.step("cw")
-                self.direction = self.direction + self.degrees_minute
-                await asyncio.sleep(1)
-                c += 1
-                if c == 6:
-                    print("Rotate 1 step right for correction.")
-                    await self.step("cw")
-                    c = 0
-            else:
-                self.table_turning = False
-            await asyncio.sleep_ms(500)
 
-
-async def resolve_date():
-    (year, month, mdate, hour, minute, second, wday, yday) = utime.localtime()
+def resolve_date():
+    (year, month, mdate, hour, minute, second, wday, yday) = localtime()
     date = "%s.%s.%s time %s:%s:%s" % (mdate, month, year, "{:02d}".format(hour), "{:02d}".format(minute), "{:02d}".
                                        format(second))
     return date
 
 
-async def error_reporting(error):
+def error_reporting(error):
     # error message: date + time;uptime;devicename;ip;error;free mem
-    errormessage = str(resolve_date()) + ";" + str(utime.ticks_ms()) + ";" \
+    errormessage = str(resolve_date()) + ";" + str(ticks_ms()) + ";" \
         + str(CLIENT_ID) + ";" + str(network.WLAN(network.STA_IF).ifconfig()) + ";" + str(error) +\
         ";" + str(gc.mem_free())
-    await client.publish(TOPIC_ERRORS, str(errormessage), retain=False)
+    client.publish(TOPIC_ERRORS, str(errormessage), retain=False)
 
 
-async def mqtt_report():
-    global previous_mqtt
-    n = 0
-    while True:
-        await asyncio.sleep(5)
-        # print('mqtt-publish', n)
-        await client.publish('result', '{}'.format(n), qos=1)
-        n += 1
-        """ if (kaasusensori.eCO2_keskiarvo > 0) and (kaasusensori.tVOC_keskiarvo > 0) and \
-                (utime.time() - previous_mqtt) > 60:
-            try:
-                await client.publish(AIHE_CO2, str(kaasusensori.eCO2_keskiarvo), retain=False, qos=0) """
+def mqtt_report():
+    global MQTT_UP
+    global MQTT_REPORTED
+    if MQTT_UP is True:
+        if bmes.values[0][:-1] is not None:
+            client.publish(TOPIC_TEMP, bmes.values[0][:-1], retain=0, qos=0)
+        if bmes.values[2][:-1] is not None:
+            client.publish(TOPIC_HUMIDITY, bmes.values[2][:-1], retain=0, qos=0)
+        if bmes.values[1][:-3] is not None:
+            client.publish(TOPIC_PRESSURE, bmes.values[1][:-3], retain=0, qos=0)
+        MQTT_REPORTED = True
 
 
 #  First initialize limiter_switch object, then panel motor
 limiter_switch = Pin(MICROSWITCH_PIN, Pin.IN, Pin.PULL_UP)
 panel_motor = StepperMotor(STEPPER1_PIN1, STEPPER1_PIN2, STEPPER1_PIN3, STEPPER1_PIN4, STEPPER1_DELAY)
 
+i2c = I2C(scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN))
+# bmes = BmE.BME280(i2c=i2c)
 
-async def read_battery_level():
-    while True:
-        pass
-        # print("Battery level: %s" % batteryreader.read())
+# MQTT
+client = MQTTClient(CLIENT_ID, MQTT_SERVER, MQTT_PORT, MQTT_USER, MQTT_PASSWORD)
 
-
-async def report_what_i_do():
-    while True:
-        print("Limiter switch is %s" % limiter_switch.value())
-        print("Turntable turning %s" % panel_motor.table_turning)
-        print("Panel direction: %s, uptime %s" % (panel_motor.direction, panel_motor.uptime))
-        await asyncio.sleep(2)
+# Secondary circuit setup
+secondarycircuit = Pin(SECONDARY_ACTIVATION_PIN, mode=Pin.OPEN_DRAIN, pull=-1)
 
 
-async def main():
-    MQTTClient.DEBUG = False
-    # await client.connect()
-    loop = asyncio.get_event_loop()
-    loop.create_task(read_battery_level())
-    loop.create_task(report_what_i_do())
+def main():
+    try:
+        client.connect()
+    except Exception as e:
+        if type(e).__name__ == "MQTTException":
+            print("** ERROR: Check MQTT server connection info, username and password! **")
+            raise
+        elif type(e).__name__ == "OSError":
+            raise
 
+    n = 0
+    #  Activate secondary circuit. Sensors will start measuring and motor can turn.
+    secondarycircuit(0)
+
+    # TODO: Check if we have today already calibrated to 0 position
     #  Find best step and direction for the solar panel. Do once when boot, then once a day
     if panel_motor.panel_time is None:
-        await panel_motor.search_best_voltage_position()
-        print("Best position: %s/%s degrees, voltage %s, step %s.  "
-              % (panel_motor.panel_time, panel_motor.direction, panel_motor.max_voltage, panel_motor.step_max_index))
-    elif (utime.mktime(utime.localtime()) - panel_motor.uptime) > 86400:
-        await panel_motor.search_best_voltage_position()
-        print("Best position: %s/%s degrees, voltage %s, step %s.  "
+        panel_motor.search_best_voltage_position()
+        print("Best position: %s/%s degrees, voltage %s, step %s."
               % (panel_motor.panel_time, panel_motor.direction, panel_motor.max_voltage, panel_motor.step_max_index))
 
-    loop.create_task(panel_motor.follow_the_sun_loop())
+    # TODO: read from file time we have had best voltage position and correct panel direction if needed
+    
+    # TODO: mqtt_report()
 
-    loop.run_forever()
+    #  Deactivate seoncary circuit
+    secondarycircuit(1)
+
+    while n < KEEP_AWAKE_TIME:
+        if DEBUG_ENABLED == 1:
+            print("Going to sleep % seconds. Sleeping in %s seconds. Ctrl+C to break."
+                  % (ULP_SLEEP_TIME, (KEEP_AWAKE_TIME - n)))
+            sleep(1)
+            n += 1
+        # deepsleep(ULP_SLEEP_TIME * 1000)
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        main()
+    except KeyboardInterrupt:
+        raise
     except MemoryError:
         reset()
