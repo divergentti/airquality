@@ -2,7 +2,7 @@
 For ESP32-Wrover or ESP32-Wroom in ULP (Ultra Low Power) mode.
 
 Turns solar panel towards the sun and measures with BME280 temperature, humidity and pressure and sends information
-to the mqtt broker and then sleeps.
+to the mqtt broker and then sleeps. Calibrates once a day to the highest voltage from solarpanel.
 
 Motor: 5V 28BYJ-48-5V and Steppermotor.py original https://github.com/IDWizard/uln2003/blob/master/uln2003.py
 Solarpanel: CNC110x69-5 volts
@@ -33,7 +33,6 @@ is at + , another - and from the middle to the IO-port (BATTERY_ADC_PIN and SOLA
 
  Best educated guess for the proper multiplies is 0.0018V per bit with 11DB attennuation.
 
-
 Stepper motor control: stepper motor is rotated to the limiter switch (zero position) and then almost full round.
 During rotation, each step measures solarpanel voltage and best direction (first peak voltage) is chosen.
 This also estimates direction of the sun, because if clock is set correctly, we can calculate in which direction
@@ -51,16 +50,16 @@ the sun is, which also means best voltage.
 18.2.2021: Changed to non-asynchronous model, because it does not make sense to have async in ULP mode.
            Corrected voltage values to conform voltage splitter values (divide by 2).
            Ready to go with MQTT and BME280
-
+19.2.2021: Added error handling, runtimeconfig.json handling, rotation based on time differences.
 """
 
 import Steppermotor
 from machine import I2C, Pin, ADC, reset, deepsleep
-from utime import sleep, time, localtime, mktime, ticks_ms, ticks_us
+from utime import sleep, localtime, mktime, ticks_ms
 import gc
 from umqttsimple import MQTTClient
 import network
-from json import load
+from json import load, dump
 import BME280_float as BmE
 
 try:
@@ -75,11 +74,12 @@ except OSError:  # open failed
     raise
 
 try:
-    f = open('runtimeconfig.json', 'r')
+    f2 = open('runtimeconfig.json', 'r')
     with open('runtimeconfig.json') as config_file:
         runtimedata = load(config_file)
-        f.close()
+        f2.close()
         TURNTABLE_ZEROTIME = runtimedata['TURNTABLE_ZEROTIME']
+        STEPPER_LAST_STEP = runtimedata['STEPPER_LAST_STEP']
         LAST_BATTERY_VOLTAGE = runtimedata['LAST_BATTERY_VOLTAGE']
         BATTERY_LOW_VOLTAGE = runtimedata['BATTERY_LOW_VOLTAGE']
         BATTERY_LOW_VOLTAGE = BATTERY_LOW_VOLTAGE / 2  # due to voltage splitter
@@ -98,8 +98,8 @@ except OSError:
     raise
 
 
-
 class StepperMotor(object):
+
     """ ULN2003-based control, half steps. Gear ratio 0.5 : 1 """
 
     def __init__(self, in1, in2, in3, in4, indelay):
@@ -166,7 +166,8 @@ class StepperMotor(object):
         if DEBUG_ENABLED == 1:
             print("Starting rotation counterclockwise until limiter switch turns off...")
         starttime = ticks_ms()
-        while limiter_switch.value() == 1 and ((ticks_ms() - starttime) < 90000):
+        # Maximum time to turn full round is about 22 seconds.
+        while limiter_switch.value() == 1 and ((ticks_ms() - starttime) < 22000):
             self.step("ccw")
             self.steps_taken = +1
         if DEBUG_ENABLED == 1:
@@ -179,6 +180,7 @@ class StepperMotor(object):
         self.table_turning = False
 
     def search_best_voltage_position(self):
+        global TURNTABLE_ZEROTIME
         self.battery_voltage = batteryreader.read() / 1000
         if self.battery_voltage < self.battery_low_voltage:
             if DEBUG_ENABLED == 1:
@@ -195,7 +197,8 @@ class StepperMotor(object):
             self.step("cw")
             self.solar_voltage = (solarpanelreader.read() / 1000) / 2  # due to voltage splitter
             if self.solar_voltage is not None:
-                print("Voltage %s" % self.solar_voltage)
+                if DEBUG_ENABLED == 1:
+                    print("Voltage %s" % self.solar_voltage)
                 self.steps_voltages.append(self.solar_voltage)
         if len(self.steps_voltages) < self.max_steps_to_rotate:
             if DEBUG_ENABLED == 1:
@@ -213,6 +216,7 @@ class StepperMotor(object):
             print("Rotating back to maximum %s steps" % (self.max_steps_to_rotate - self.step_max_index))
         for i in range(0, (self.max_steps_to_rotate - self.step_max_index)):
             self.step("ccw")
+        TURNTABLE_ZEROTIME = localtime()
         self.table_turning = False
 
 
@@ -224,24 +228,38 @@ def resolve_date():
 
 
 def error_reporting(error):
-    # error message: date + time;uptime;devicename;ip;error;free mem
-    errormessage = str(resolve_date()) + ";" + str(ticks_ms()) + ";" \
-        + str(CLIENT_ID) + ";" + str(network.WLAN(network.STA_IF).ifconfig()) + ";" + str(error) +\
-        ";" + str(gc.mem_free())
-    client.publish(TOPIC_ERRORS, str(errormessage), retain=False)
+    if network.WLAN(network.STA_IF).config('essid') != '':
+        # error message: date + time;uptime;devicename;ip;error;free mem
+        errormessage = str(resolve_date()) + ";" + str(ticks_ms()) + ";" \
+            + str(CLIENT_ID) + ";" + str(network.WLAN(network.STA_IF).ifconfig()) + ";" + str(error) +\
+            ";" + str(gc.mem_free())
+        client.publish(TOPIC_ERRORS, str(errormessage), retain=False)
+    else:
+        if DEBUG_ENABLED == 1:
+            print("Network down! Can not publish error message! Boot in 10s.")
+        sleep(10)
+        reset()
 
 
 def mqtt_report():
-    global MQTT_UP
-    global MQTT_REPORTED
-    if MQTT_UP is True:
+    global LAST_TEMP
+    global LAST_HUMIDITY
+    global LAST_PRESSURE
+    if network.WLAN(network.STA_IF).config('essid') != '':
         if bmes.values[0][:-1] is not None:
             client.publish(TOPIC_TEMP, bmes.values[0][:-1], retain=0, qos=0)
+            LAST_TEMP = bmes.values[0][:-1]
         if bmes.values[2][:-1] is not None:
             client.publish(TOPIC_HUMIDITY, bmes.values[2][:-1], retain=0, qos=0)
+            LAST_HUMIDITY = bmes.values[2][:-1]
         if bmes.values[1][:-3] is not None:
             client.publish(TOPIC_PRESSURE, bmes.values[1][:-3], retain=0, qos=0)
-        MQTT_REPORTED = True
+            LAST_PRESSURE = bmes.values[1][:-3]
+    else:
+        if DEBUG_ENABLED == 1:
+            print("Network down! Can not publish to MQTT! Boot in 10s.")
+        sleep(10)
+        reset()
 
 
 """ Global objects """
@@ -253,10 +271,26 @@ solarpanelreader.atten(ADC.ATTN_11DB)
 
 #  First initialize limiter_switch object, then panel motor
 limiter_switch = Pin(MICROSWITCH_PIN, Pin.IN, Pin.PULL_UP)
-panel_motor = StepperMotor(STEPPER1_PIN1, STEPPER1_PIN2, STEPPER1_PIN3, STEPPER1_PIN4, STEPPER1_DELAY)
+
+try:
+    panel_motor = StepperMotor(STEPPER1_PIN1, STEPPER1_PIN2, STEPPER1_PIN3, STEPPER1_PIN4, STEPPER1_DELAY)
+except OSError as e:
+    if DEBUG_ENABLED == 1:
+        print("Check StepperMotor pins!!")
+        raise
+    else:
+        raise
 
 i2c = I2C(scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN))
-# bmes = BmE.BME280(i2c=i2c)
+
+try:
+    bmes = BmE.BME280(i2c=i2c)
+except OSError as e:
+    if DEBUG_ENABLED == 1:
+        print("Check BME sensor I2C pins!")
+        raise
+    else:
+        raise
 
 # MQTT
 client = MQTTClient(CLIENT_ID, MQTT_SERVER, MQTT_PORT, MQTT_USER, MQTT_PASSWORD)
@@ -266,32 +300,115 @@ secondarycircuit = Pin(SECONDARY_ACTIVATION_PIN, mode=Pin.OPEN_DRAIN, pull=-1)
 
 
 def main():
-    try:
-        client.connect()
-    except Exception as e:
-        if type(e).__name__ == "MQTTException":
-            print("** ERROR: Check MQTT server connection info, username and password! **")
-            raise
-        elif type(e).__name__ == "OSError":
-            raise
+    global LAST_UPTIME
+    global LAST_BATTERY_VOLTAGE
+    global STEPPER_LAST_STEP
+
+    if network.WLAN(network.STA_IF).config('essid') != '':
+        try:
+            client.connect()
+        except Exception as e:
+            if type(e).__name__ == "MQTTException":
+                print("** ERROR: Check MQTT server connection info, username and password! **")
+                raise
+            elif type(e).__name__ == "OSError":
+                raise
+    else:
+        sleep(10)
+        try:
+            client.connect()
+        except Exception as e:
+            if type(e).__name__ == "MQTTException":
+                print("** ERROR: Check MQTT server connection info, username and password! **")
+                raise
+            elif type(e).__name__ == "OSError":
+                raise
 
     n = 0
     #  Activate secondary circuit. Sensors will start measuring and motor can turn.
     secondarycircuit(0)
 
-    # TODO: Check if we have today already calibrated to 0 position
-    #  Find best step and direction for the solar panel. Do once when boot, then once a day
-    if panel_motor.panel_time is None:
+    try:
+        LAST_BATTERY_VOLTAGE = (batteryreader.value() / 1000) / 2
+    except LAST_BATTERY_VOLTAGE == 0:
+        if DEBUG_ENABLED == 1:
+            print("Check secondary circuit! No battery voltage!")
+            raise
+        else:
+            raise
+
+    #  Find best step and direction for the solar panel. Do once when boot, then once a day after 7 and before 21
+    if (TURNTABLE_ZEROTIME[2] != localtime()[2]) and (localtime()[3] > 6) and (localtime()[3] < 21):
         panel_motor.search_best_voltage_position()
-        print("Best position: %s/%s degrees, voltage %s, step %s."
-              % (panel_motor.panel_time, panel_motor.direction, panel_motor.max_voltage, panel_motor.step_max_index))
+        STEPPER_LAST_STEP = panel_motor.step_max_index
+        if DEBUG_ENABLED == 1:
+            print("Best position: %s/%s degrees, voltage %s, step %s." % (panel_motor.panel_time, panel_motor.direction,
+                                                                          panel_motor.max_voltage,
+                                                                          panel_motor.step_max_index))
+        if panel_motor.panel_time is None:
+            if DEBUG_ENABLED == 1:
+                print("Panel motor panel_time not set!")
+            else:
+                error_reporting("Panel motor panel_time not set!")
+    else:
+        # Already calibrated today, let's rotate to best position based on time from last uptime
+        timediff_min = int((mktime(localtime()) - mktime(LAST_UPTIME)) / 60)
+        voltage = solarpanelreader.value()
+        for i in range(0, timediff_min * panel_motor.steps_for_minute):
+            panel_motor.step("cw")
+            STEPPER_LAST_STEP += 1
+            if STEPPER_LAST_STEP >= panel_motor.max_steps_to_rotate:
+                if DEBUG_ENABLED == 1:
+                    print("ERROR: trying to turn over max steps to rotate!")
+                error_reporting("Timely based rotation trying to turn over max steps!")
+                break
+        # Check that we really got best voltage
+        if solarpanelreader.value() < voltage:
+            if DEBUG_ENABLED == 1:
+                print("Rotated too much, rotating back half of time difference!")
+            for i in range(0, int(timediff_min / 2) * panel_motor.steps_for_minute):
+                panel_motor.step("ccw")
+                STEPPER_LAST_STEP -= 1
+                if STEPPER_LAST_STEP == 1:
+                    if DEBUG_ENABLED == 1:
+                        print("ERROR: trying to turn below 0 steps!")
+                    error_reporting("Timely based rotation trying to turn belows 0 steps!")
+                    break
 
-    # TODO: read from file time we have had best voltage position and correct panel direction if needed
-
-    # TODO: mqtt_report()
+    try:
+        mqtt_report()
+    except OSError as e:
+        if DEBUG_ENABLED == 1:
+            print("MQTT Error %s" %e)
+        else:
+            pass
 
     #  Deactivate seoncary circuit
     secondarycircuit(1)
+
+    # Save parameters to the file
+    runtimedata['TURNTABLE_ZEROTIME'] = TURNTABLE_ZEROTIME
+    runtimedata['STEPPER_LAST_STEP'] = STEPPER_LAST_STEP
+    runtimedata['LAST_BATTERY_VOLTAGE'] = (batteryreader.value() / 1000) / 2
+    runtimedata['BATTERY_LOW_VOLTAGE'] = BATTERY_LOW_VOLTAGE * 2
+    runtimedata['BATTERY_ADC_MULTIPLIER'] = BATTERY_ADC_MULTIPLIER
+    runtimedata['LAST_UPTIME'] = localtime()
+    runtimedata['LAST_TEMP'] = LAST_TEMP
+    runtimedata['LAST_HUMIDITY'] = LAST_HUMIDITY
+    runtimedata['LAST_PRESSURE'] = LAST_PRESSURE
+    runtimedata['ULP_SLEEP_TIME'] = ULP_SLEEP_TIME
+    runtimedata['KEEP_AWAKE_TIME'] = KEEP_AWAKE_TIME
+    runtimedata['DEBUG_ENABLED'] = DEBUG_ENABLED
+
+    try:
+        with open('runtimeconfig.json', 'w') as f3:
+            dump(runtimedata, f3)
+        f3.close()
+
+    except OSError:
+        if DEBUG_ENABLED == 1:
+            print("Write to runtimeconfig.json failed!")
+        error_reporting("Write to runtimeconfig.json failed!")
 
     while n < KEEP_AWAKE_TIME:
         if DEBUG_ENABLED == 1:
