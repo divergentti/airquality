@@ -414,7 +414,8 @@ def main():
                   % (ULP_SLEEP_TIME, (KEEP_AWAKE_TIME - n)))
         sleep(1)
         n += 1
-        deepsleep(ULP_SLEEP_TIME * 1000)
+
+    deepsleep(ULP_SLEEP_TIME * 1000)
 
 
 if __name__ == "__main__":
