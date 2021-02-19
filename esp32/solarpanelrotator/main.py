@@ -334,7 +334,8 @@ def main():
             print("Best position: %s/%s degrees, voltage %s, step %s." % (panel_motor.panel_time, panel_motor.direction,
                                                                           panel_motor.max_voltage,
                                                                           panel_motor.step_max_index))
-    elif (TURNTABLE_ZEROTIME[2] != localtime()[2]) and (localtime()[3] > 6) and (localtime()[3] < 21):
+
+    if (TURNTABLE_ZEROTIME[2] != localtime()[2]) and (localtime()[3] > 6) and (localtime()[3] < 21):
         panel_motor.search_best_voltage_position()
         STEPPER_LAST_STEP = panel_motor.step_max_index
         if DEBUG_ENABLED == 1:
@@ -346,10 +347,12 @@ def main():
                 print("Panel motor panel_time not set!")
             else:
                 error_reporting("Panel motor panel_time not set!")
-    else:
+
+    if (TURNTABLE_ZEROTIME[2] == localtime()[2]) and (localtime()[3] > 6) and (localtime()[3] < 21):
         # Already calibrated today, let's rotate to best position based on time from last uptime
         timediff_min = int((mktime(localtime()) - mktime(LAST_UPTIME)) / 60)
         voltage = solarpanelreader.read()
+        stepper_old_step = STEPPER_LAST_STEP
         for i in range(0, timediff_min * panel_motor.steps_for_minute):
             panel_motor.step("cw")
             STEPPER_LAST_STEP += 1
@@ -359,7 +362,7 @@ def main():
                 error_reporting("Timely based rotation trying to turn over max steps!")
                 break
         # Check that we really got best voltage
-        if solarpanelreader.read() < voltage:
+        if (solarpanelreader.read() < voltage) and (STEPPER_LAST_STEP > stepper_old_step):
             if DEBUG_ENABLED == 1:
                 print("Rotated too much, rotating back half of time difference!")
             for i in range(0, int(timediff_min / 2) * panel_motor.steps_for_minute):
