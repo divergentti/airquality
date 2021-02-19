@@ -286,11 +286,8 @@ i2c = I2C(scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN))
 try:
     bmes = BmE.BME280(i2c=i2c)
 except OSError as e:
-    if DEBUG_ENABLED == 1:
-        print("Check BME sensor I2C pins!")
-        raise
-    else:
-        raise
+    print("Check BME sensor I2C pins!")
+    raise
 
 # MQTT
 client = MQTTClient(CLIENT_ID, MQTT_SERVER, MQTT_PORT, MQTT_USER, MQTT_PASSWORD)
@@ -328,17 +325,16 @@ def main():
     #  Activate secondary circuit. Sensors will start measuring and motor can turn.
     secondarycircuit(0)
 
-    try:
-        LAST_BATTERY_VOLTAGE = (batteryreader.value() / 1000) / 2
-    except LAST_BATTERY_VOLTAGE == 0:
-        if DEBUG_ENABLED == 1:
-            print("Check secondary circuit! No battery voltage!")
-            raise
-        else:
-            raise
-
     #  Find best step and direction for the solar panel. Do once when boot, then once a day after 7 and before 21
-    if (TURNTABLE_ZEROTIME[2] != localtime()[2]) and (localtime()[3] > 6) and (localtime()[3] < 21):
+
+    if TURNTABLE_ZEROTIME is None:
+        panel_motor.search_best_voltage_position()
+        STEPPER_LAST_STEP = panel_motor.step_max_index
+        if DEBUG_ENABLED == 1:
+            print("Best position: %s/%s degrees, voltage %s, step %s." % (panel_motor.panel_time, panel_motor.direction,
+                                                                          panel_motor.max_voltage,
+                                                                          panel_motor.step_max_index))
+    elif (TURNTABLE_ZEROTIME[2] != localtime()[2]) and (localtime()[3] > 6) and (localtime()[3] < 21):
         panel_motor.search_best_voltage_position()
         STEPPER_LAST_STEP = panel_motor.step_max_index
         if DEBUG_ENABLED == 1:
@@ -353,7 +349,7 @@ def main():
     else:
         # Already calibrated today, let's rotate to best position based on time from last uptime
         timediff_min = int((mktime(localtime()) - mktime(LAST_UPTIME)) / 60)
-        voltage = solarpanelreader.value()
+        voltage = solarpanelreader.read()
         for i in range(0, timediff_min * panel_motor.steps_for_minute):
             panel_motor.step("cw")
             STEPPER_LAST_STEP += 1
@@ -363,7 +359,7 @@ def main():
                 error_reporting("Timely based rotation trying to turn over max steps!")
                 break
         # Check that we really got best voltage
-        if solarpanelreader.value() < voltage:
+        if solarpanelreader.read() < voltage:
             if DEBUG_ENABLED == 1:
                 print("Rotated too much, rotating back half of time difference!")
             for i in range(0, int(timediff_min / 2) * panel_motor.steps_for_minute):
@@ -379,9 +375,11 @@ def main():
         mqtt_report()
     except OSError as e:
         if DEBUG_ENABLED == 1:
-            print("MQTT Error %s" %e)
+            print("MQTT Error %s" % e)
         else:
             pass
+
+    LAST_BATTERY_VOLTAGE = (batteryreader.read() / 1000) / 2
 
     #  Deactivate seoncary circuit
     secondarycircuit(1)
@@ -389,7 +387,7 @@ def main():
     # Save parameters to the file
     runtimedata['TURNTABLE_ZEROTIME'] = TURNTABLE_ZEROTIME
     runtimedata['STEPPER_LAST_STEP'] = STEPPER_LAST_STEP
-    runtimedata['LAST_BATTERY_VOLTAGE'] = (batteryreader.value() / 1000) / 2
+    runtimedata['LAST_BATTERY_VOLTAGE'] = (batteryreader.read() / 1000) / 2
     runtimedata['BATTERY_LOW_VOLTAGE'] = BATTERY_LOW_VOLTAGE * 2
     runtimedata['BATTERY_ADC_MULTIPLIER'] = BATTERY_ADC_MULTIPLIER
     runtimedata['LAST_UPTIME'] = localtime()
