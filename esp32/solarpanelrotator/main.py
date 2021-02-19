@@ -417,6 +417,8 @@ def main():
     runtimedata['ULP_SLEEP_TIME'] = ULP_SLEEP_TIME
     runtimedata['KEEP_AWAKE_TIME'] = KEEP_AWAKE_TIME
     runtimedata['DEBUG_ENABLED'] = DEBUG_ENABLED
+    runtimedata['SOUTH_STEP'] = SOUTH_STEP
+    runtimedata['TIMEZONE_DIFFERENCE'] = TIMEZONE_DIFFERENCE
 
     try:
         with open('runtimeconfig.json', 'w') as f3:
