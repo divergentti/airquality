@@ -127,14 +127,30 @@ class StepperMotor(object):
         self.table_turning = False
         self.steps_taken = 0
         self.southstep = SOUTH_STEP
-        self.at_limiter = False
+        if self.southstep is not None:
+            self.sw = self.southstep + (45 * self.steps_for_minute)
+            if self.sw > self.max_steps_to_rotate:
+                self.sw = self. max_steps_to_rotate
+            self.west = self.southstep + (90 * self.steps_for_minute)
+            if self.west > self.max_steps_to_rotate:
+                self.west = self.max_steps_to_rotate
+            self.se = self.southstep - (45 * self.steps_for_minute)
+            if self.se < 1:
+                self.se = 1
+            self.east = self.southstep - (90 * self.steps_for_minute)
+            if self.east < 1:
+                self.east = 1
+        else:
+            self.sw = None
+            self.west = None
+            self.se = None
+            self.east = None
 
     def turn_to_south_step(self):
         if self.southstep is not None:
             self.turn_to_limiter()
             for i in range(0, self.southstep):
                 self.step("cw")
-            self.at_limiter = False
 
     def step(self, direction, overrideswitch=False):
         self.battery_voltage = (batteryreader.read() / 1000) * 2
@@ -172,7 +188,7 @@ class StepperMotor(object):
                 error_reporting('ERROR %s stepping %s' % (ex, direction))
                 self.table_turning = False
 
-    def turn_to_limiter(self):
+    def turn_to_limiter(self, keepclosed=False):
         if DEBUG_ENABLED == 1:
             print("Starting rotation counterclockwise until limiter switch turns off...")
         starttime = ticks_ms()
@@ -183,12 +199,12 @@ class StepperMotor(object):
         if DEBUG_ENABLED == 1:
             print("Switch on, taking a few steps back to open the switch...")
         self.steps_taken = 0
-        # Take a few steps back to open the switch
-        while limiter_switch.value() == 0:
-            self.step("cw", overrideswitch=True)
-            self.steps_taken = +1
+        if keepclosed is False:
+            # Take a few steps back to open the switch
+            while limiter_switch.value() == 0:
+                self.step("cw", overrideswitch=True)
+                self.steps_taken = +1
         self.table_turning = False
-        self.at_limiter = True
 
     def search_best_voltage_position(self):
         global TURNTABLE_ZEROTIME
@@ -231,7 +247,6 @@ class StepperMotor(object):
         if localtime()[3] == 12 - TIMEZONE_DIFFERENCE:
             SOUTH_STEP = self.step_max_index
         self.table_turning = False
-        self.at_limiter = False
 
 
 def resolve_date():
@@ -314,6 +329,7 @@ def main():
     global LAST_UPTIME
     global LAST_BATTERY_VOLTAGE
     global STEPPER_LAST_STEP
+    global ULP_SLEEP_TIME
 
     if network.WLAN(network.STA_IF).config('essid') != '':
         try:
@@ -388,13 +404,13 @@ def main():
                     if STEPPER_LAST_STEP == 1:
                         if DEBUG_ENABLED == 1:
                             print("ERROR: trying to turn below 0 steps!")
-                        error_reporting("Timely based rotation trying to turn belows 0 steps!")
+                        error_reporting("Timely based rotation trying to turn below 0 steps!")
                         break
 
         # Rotate turntable to limiter = eastmost position
-        if ((localtime()[3] + TIMEZONE_DIFFERENCE) < 6) and ((localtime()[3] + TIMEZONE_DIFFERENCE) > 21) and \
-                (panel_motor.at_limiter is False):
+        if ((localtime()[3] + TIMEZONE_DIFFERENCE) < 6) and ((localtime()[3] + TIMEZONE_DIFFERENCE) > 21):
             panel_motor.turn_to_limiter()
+            STEPPER_LAST_STEP = 0
 
     try:
         mqtt_report()
@@ -432,6 +448,10 @@ def main():
 
     #  Deactivate seoncary circuit
     secondarycircuit(1)
+
+    # Avoid skipping midday checkup
+    if (ULP_SLEEP_TIME >= 3600) and (localtime()[3] == 11 - TIMEZONE_DIFFERENCE):
+        ULP_SLEEP_TIME = 3500
 
     while n < KEEP_AWAKE_TIME:
         if DEBUG_ENABLED == 1:
