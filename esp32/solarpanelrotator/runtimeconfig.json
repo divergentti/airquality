@@ -8,7 +8,9 @@
   "LAST_TEMP" : null,
   "LAST_HUMIDITY" : null,
   "LAST_PRESSURE" : null,
-  "ULP_SLEEP_TIME" : 3600,
-  "KEEP_AWAKE_TIME": 300,
-  "DEBUG_ENABLED" : 1
+  "ULP_SLEEP_TIME" : 600,
+  "KEEP_AWAKE_TIME": 10,
+  "DEBUG_ENABLED" : 1,
+  "SOUTH_STEP" :  null,
+  "TIMEZONE_DIFFERENCE": 2
 }
