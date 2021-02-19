@@ -412,9 +412,9 @@ def main():
         if DEBUG_ENABLED == 1:
             print("Going to sleep % seconds. Sleeping in %s seconds. Ctrl+C to break."
                   % (ULP_SLEEP_TIME, (KEEP_AWAKE_TIME - n)))
-            sleep(1)
-            n += 1
-        # deepsleep(ULP_SLEEP_TIME * 1000)
+        sleep(1)
+        n += 1
+        deepsleep(ULP_SLEEP_TIME * 1000)
 
 
 if __name__ == "__main__":
