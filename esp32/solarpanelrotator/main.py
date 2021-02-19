@@ -350,6 +350,8 @@ def main():
 
     if (TURNTABLE_ZEROTIME[2] == localtime()[2]) and (localtime()[3] > 6) and (localtime()[3] < 21):
         # Already calibrated today, let's rotate to best position based on time from last uptime
+        if LAST_UPTIME is None:
+            LAST_UPTIME = localtime()
         timediff_min = int((mktime(localtime()) - mktime(LAST_UPTIME)) / 60)
         voltage = solarpanelreader.read()
         stepper_old_step = STEPPER_LAST_STEP
