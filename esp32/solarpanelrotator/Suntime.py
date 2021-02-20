@@ -12,7 +12,7 @@ class Sun:
     """
     Original: https://github.com/SatAgro/suntime/blob/master/suntime/suntime.py
 
-    Ported to Micropython 20.01.2021: Divergentti / Jari Hiltunen
+    Ported to Micropython 20.02.2021: Divergentti / Jari Hiltunen
     Replaced: date utils. Method call use hour difference to UTC as timezone! This will be added to return.
     """
 
