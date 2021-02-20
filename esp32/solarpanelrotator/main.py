@@ -125,7 +125,10 @@ class StepperMotor(object):
         #  0.5 spur gear ratio (9:18 gears), half steps multiply with 2, ~ 1018 steps full round
         self.steps_for_minute = int((24 * 60) / (self.full_rotation * 2))  # 1440 / ~1018 ~ 1.4 steps per minute
         self.table_turning = False
-        self.steps_taken = 0
+        if STEPPER_LAST_STEP is not None:
+            self.steps_taken = STEPPER_LAST_STEP
+        else:
+            self.steps_taken = 0
         self.southstep = SOUTH_STEP
         if self.southstep is not None:
             self.sw = self.southstep + (45 * self.steps_for_minute)
@@ -166,12 +169,29 @@ class StepperMotor(object):
         else:
             return False
 
+        if limiter_switch.value() == 0:
+            self.steps_taken = 0
+            self.table_turning = False
+
         if overrideswitch is False:
             # switch = 1 means switch is open
+
             if limiter_switch.value() == 1:
                 try:
                     self.motor.step(1, turn)
+                    self.steps_taken = self.steps_taken + turn
                     self.table_turning = True
+                    if panel_motor.steps_taken >= panel_motor.max_steps_to_rotate:
+                        if DEBUG_ENABLED == 1:
+                            print("ERROR: trying to turn over max steps to rotate!")
+                        self.table_turning = False
+                        return False
+                    if panel_motor.steps_taken == 0:
+                        if DEBUG_ENABLED == 1:
+                            print("NOTE: Rotating under minimum steps. ")
+                        self.steps_taken = 0
+                        self.table_turning = False
+                        return False
                 except OSError as ex:
                     if DEBUG_ENABLED == 1:
                         print('ERROR %s stepping %s:' % (ex, direction))
@@ -181,7 +201,19 @@ class StepperMotor(object):
         if overrideswitch is True:
             try:
                 self.motor.step(1, turn)
+                self.steps_taken = self.steps_taken + turn
                 self.table_turning = True
+                if panel_motor.steps_taken >= panel_motor.max_steps_to_rotate:
+                    if DEBUG_ENABLED == 1:
+                        print("ERROR: trying to turn over max steps to rotate!")
+                    self.table_turning = False
+                    return False
+                if panel_motor.steps_taken == 0:
+                    if DEBUG_ENABLED == 1:
+                        print("NOTE: trying to turn over min steps to rotate.")
+                        self.steps_taken = 0
+                        self.table_turning = False
+                    return False
             except OSError as ex:
                 if DEBUG_ENABLED == 1:
                     print('ERROR %s stepping %s:' % (ex, direction))
@@ -195,20 +227,16 @@ class StepperMotor(object):
         # Maximum time to turn full round is about 22 seconds.
         while limiter_switch.value() == 1 and ((ticks_ms() - starttime) < 22000):
             self.step("ccw")
-            self.steps_taken = +1
         if DEBUG_ENABLED == 1:
             print("Switch on, taking a few steps back to open the switch...")
-        self.steps_taken = 0
         if keepclosed is False:
             # Take a few steps back to open the switch
             while limiter_switch.value() == 0:
                 self.step("cw", overrideswitch=True)
-                self.steps_taken = +1
         self.table_turning = False
 
     def search_best_voltage_position(self):
         global TURNTABLE_ZEROTIME
-        global SOUTH_STEP
         self.battery_voltage = (batteryreader.read() / 1000) * 2
         if self.battery_voltage < BATTERY_LOW_VOLTAGE:
             if DEBUG_ENABLED == 1:
@@ -226,7 +254,7 @@ class StepperMotor(object):
             self.solar_voltage = (solarpanelreader.read() / 1000) * 2  # due to voltage splitter
             if self.solar_voltage is not None:
                 if DEBUG_ENABLED == 1:
-                    print("Voltage %s" % self.solar_voltage)
+                    print('[Read: %sV%%]\r' % self.solar_voltage, end="")
                 self.steps_voltages.append(self.solar_voltage)
         if len(self.steps_voltages) < self.max_steps_to_rotate:
             if DEBUG_ENABLED == 1:
@@ -245,7 +273,9 @@ class StepperMotor(object):
         TURNTABLE_ZEROTIME = localtime()
         #  The sun shall be about south at LOCAL 12:00 winter time (summer +1h)
         if localtime()[3] == 12 - TIMEZONE_DIFFERENCE:
-            SOUTH_STEP = self.step_max_index
+            panel_motor.southstep = self.steps_taken
+            if DEBUG_ENABLED == 1:
+                print("South step %s set." % panel_motor.southstep)
         self.table_turning = False
 
 
@@ -330,6 +360,7 @@ def main():
     global LAST_BATTERY_VOLTAGE
     global STEPPER_LAST_STEP
     global ULP_SLEEP_TIME
+    global SOUTH_STEP
 
     if network.WLAN(network.STA_IF).config('essid') != '':
         try:
@@ -361,7 +392,7 @@ def main():
         #  Find best step and direction for the solar panel. Do once when boot, then if needed
         if TURNTABLE_ZEROTIME is None:
             panel_motor.search_best_voltage_position()
-            STEPPER_LAST_STEP = panel_motor.step_max_index
+            STEPPER_LAST_STEP = panel_motor.steps_taken
             if LAST_UPTIME is None:
                 LAST_UPTIME = localtime()
             if DEBUG_ENABLED == 1:
@@ -374,7 +405,8 @@ def main():
         if (panel_motor.southstep is None) and (TURNTABLE_ZEROTIME is not None) and \
                 (localtime()[3] == 12 - TIMEZONE_DIFFERENCE):
             panel_motor.search_best_voltage_position()
-            STEPPER_LAST_STEP = panel_motor.step_max_index
+            STEPPER_LAST_STEP = panel_motor.steps_taken
+            SOUTH_STEP = panel_motor.southstep
             if LAST_UPTIME is None:
                 LAST_UPTIME = localtime()
             if DEBUG_ENABLED == 1:
@@ -385,32 +417,20 @@ def main():
         if TURNTABLE_ZEROTIME is not None:
             timediff_min = int((mktime(localtime()) - mktime(LAST_UPTIME)) / 60)
             voltage = solarpanelreader.read()
-            stepper_old_step = STEPPER_LAST_STEP
             for i in range(0, timediff_min * panel_motor.steps_for_minute):
                 panel_motor.step("cw")
-                STEPPER_LAST_STEP += 1
-                if STEPPER_LAST_STEP >= panel_motor.max_steps_to_rotate:
-                    if DEBUG_ENABLED == 1:
-                        print("ERROR: trying to turn over max steps to rotate!")
-                    error_reporting("Timely based rotation trying to turn over max steps!")
-                    break
             # Check that we really got best voltage
-            if (solarpanelreader.read() < voltage) and (STEPPER_LAST_STEP > stepper_old_step):
+            if (solarpanelreader.read() < voltage) and (panel_motor.steps_taken > STEPPER_LAST_STEP):
                 if DEBUG_ENABLED == 1:
                     print("Rotated too much, rotating back half of time difference!")
                 for i in range(0, int(timediff_min / 2) * panel_motor.steps_for_minute):
                     panel_motor.step("ccw")
-                    STEPPER_LAST_STEP -= 1
-                    if STEPPER_LAST_STEP == 1:
-                        if DEBUG_ENABLED == 1:
-                            print("ERROR: trying to turn below 0 steps!")
-                        error_reporting("Timely based rotation trying to turn below 0 steps!")
-                        break
 
-        # Rotate turntable to limiter = eastmost position
+        # Rotate turntable to east
         if ((localtime()[3] + TIMEZONE_DIFFERENCE) < 6) and ((localtime()[3] + TIMEZONE_DIFFERENCE) > 21):
-            panel_motor.turn_to_limiter()
-            STEPPER_LAST_STEP = 0
+            for i in range(0, STEPPER_LAST_STEP):
+                panel_motor.step("ccw")
+            STEPPER_LAST_STEP = panel_motor.steps_taken
 
     try:
         mqtt_report()
@@ -422,7 +442,7 @@ def main():
 
     # Save parameters to the file
     runtimedata['TURNTABLE_ZEROTIME'] = TURNTABLE_ZEROTIME
-    runtimedata['STEPPER_LAST_STEP'] = STEPPER_LAST_STEP
+    runtimedata['STEPPER_LAST_STEP'] = panel_motor.steps_taken
     runtimedata['LAST_BATTERY_VOLTAGE'] = (batteryreader.read() / 1000) * 2
     runtimedata['BATTERY_LOW_VOLTAGE'] = BATTERY_LOW_VOLTAGE
     runtimedata['BATTERY_ADC_MULTIPLIER'] = BATTERY_ADC_MULTIPLIER
