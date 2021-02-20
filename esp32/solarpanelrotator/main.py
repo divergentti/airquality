@@ -378,8 +378,9 @@ def main():
 
     sunrise = sun.get_sunrise_time() + (00, 00, 00)
     sunset = sun.get_sunset_time() + (00, 00, 00)
+    timenowsec = (mktime(localtime())+(TIMEZONE_DIFFERENCE*60*60))
 
-    if (mktime(localtime()) > mktime(sunrise)) and (mktime(localtime()) < mktime(sunset)):
+    if (timenowsec > mktime(sunrise)) and (timenowsec < mktime(sunset)):
         daytime = True
     else:
         daytime = False
@@ -451,10 +452,10 @@ def main():
                 for i in range(1, int(timediff_min / 2) * panel_motor.steps_for_minute):
                     panel_motor.step("ccw")
 
-        # Rotate turntable to east
+        # Rotate turntable to limiter for night
         if daytime is False:
-            for i in range(0, STEPPER_LAST_STEP):
-                panel_motor.step("ccw")
+            if STEPPER_LAST_STEP > 1:
+                panel_motor.turn_to_limiter()
             STEPPER_LAST_STEP = panel_motor.steps_taken
 
     try:
