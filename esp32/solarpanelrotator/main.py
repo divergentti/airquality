@@ -54,6 +54,7 @@ the sun is, which also means best voltage.
            Corrected voltage values to conform voltage splitter values (divide by 2).
            Ready to go with MQTT and BME280
 19.2.2021: Added error handling, runtimeconfig.json handling, rotation based on time differences and SOUTH_STEP etc.
+20.2.2021: Changed stepper motor calculation, added (ported) Suntime calculation for sunset and sunrise.
 """
 
 import Steppermotor
@@ -64,6 +65,7 @@ from umqttsimple import MQTTClient
 import network
 from json import load, dump
 import BME280_float as BmE
+from Suntime import Sun
 
 try:
     f = open('parameters.py', "r")
@@ -95,6 +97,8 @@ try:
         DEBUG_ENABLED = runtimedata['DEBUG_ENABLED']
         SOUTH_STEP = runtimedata['SOUTH_STEP']
         TIMEZONE_DIFFERENCE = runtimedata['TIMEZONE_DIFFERENCE']
+        LONGITUDE = runtimedata['LONGITUDE']
+        LATITUDE = runtimedata['LATITUDE']
 
 
 except OSError:
@@ -361,6 +365,9 @@ client = MQTTClient(CLIENT_ID, MQTT_SERVER, MQTT_PORT, MQTT_USER, MQTT_PASSWORD)
 # Secondary circuit setup
 secondarycircuit = Pin(SECONDARY_ACTIVATION_PIN, mode=Pin.OPEN_DRAIN, pull=-1)
 
+# Sun rise or set calculation. Timezone drift from the UTC!
+sun = Sun(LATITUDE, LONGITUDE, TIMEZONE_DIFFERENCE)
+
 
 def main():
     global LAST_UPTIME
@@ -368,6 +375,17 @@ def main():
     global STEPPER_LAST_STEP
     global ULP_SLEEP_TIME
     global SOUTH_STEP
+
+    sunrise = sun.get_sunrise_time() + (00, 00, 00)
+    sunset = sun.get_sunset_time() + (00, 00, 00)
+
+    if (mktime(localtime()) > mktime(sunrise)) and (mktime(localtime()) < mktime(sunset)):
+        daytime = True
+    else:
+        daytime = False
+
+    if DEBUG_ENABLED == 1:
+        print("Sunrise today %s, sunset today %s, now is daytime %s" % (sunrise, sunset, daytime))
 
     if network.WLAN(network.STA_IF).config('essid') != '':
         try:
@@ -395,7 +413,7 @@ def main():
 
     # Do not turn nightime
 
-    if ((localtime()[3] + TIMEZONE_DIFFERENCE) > 6) and ((localtime()[3] + TIMEZONE_DIFFERENCE) < 21):
+    if daytime is True:
         #  Find best step and direction for the solar panel. Do once when boot, then if needed
         if TURNTABLE_ZEROTIME is None:
             panel_motor.search_best_voltage_position()
@@ -434,7 +452,7 @@ def main():
                     panel_motor.step("ccw")
 
         # Rotate turntable to east
-        if ((localtime()[3] + TIMEZONE_DIFFERENCE) < 6) and ((localtime()[3] + TIMEZONE_DIFFERENCE) > 21):
+        if daytime is False:
             for i in range(0, STEPPER_LAST_STEP):
                 panel_motor.step("ccw")
             STEPPER_LAST_STEP = panel_motor.steps_taken
@@ -462,6 +480,8 @@ def main():
     runtimedata['DEBUG_ENABLED'] = DEBUG_ENABLED
     runtimedata['SOUTH_STEP'] = SOUTH_STEP
     runtimedata['TIMEZONE_DIFFERENCE'] = TIMEZONE_DIFFERENCE
+    runtimedata['LONGITUDE'] = LONGITUDE
+    runtimedata['LATITUDE'] = LATITUDE
 
     try:
         with open('runtimeconfig.json', 'w') as f3:
@@ -487,7 +507,7 @@ def main():
         sleep(1)
         n += 1
 
-    deepsleep(ULP_SLEEP_TIME * 1000)
+    # deepsleep(ULP_SLEEP_TIME * 1000)
 
 
 if __name__ == "__main__":
