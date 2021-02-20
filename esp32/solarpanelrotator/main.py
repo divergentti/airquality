@@ -507,7 +507,7 @@ def main():
     (year, month, mdate, hour, minute, second, wday, yday) = localtime()
     target_time = (year, month, mdate, 12, 0, second, wday, yday)
     seconds_to_midday = mktime(target_time) - mktime(localtime())
-    if (ULP_SLEEP_TIME >= 3600) and (seconds_to_midday >= 3600):
+    if (ULP_SLEEP_TIME >= 3600) and (seconds_to_midday <= 3600):
         deepsleep((seconds_to_midday - 180) * 1000)
     else:
         deepsleep(ULP_SLEEP_TIME * 1000)
