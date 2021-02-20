@@ -496,10 +496,6 @@ def main():
     #  Deactivate seoncary circuit
     secondarycircuit(1)
 
-    # Avoid skipping midday checkup
-    if (ULP_SLEEP_TIME >= 3600) and (localtime()[3] == 11 - TIMEZONE_DIFFERENCE):
-        ULP_SLEEP_TIME = 3500
-
     while n < KEEP_AWAKE_TIME:
         if DEBUG_ENABLED == 1:
             print("Going to sleep % seconds. Sleeping in %s seconds. Ctrl+C to break."
@@ -507,7 +503,14 @@ def main():
         sleep(1)
         n += 1
 
-    # deepsleep(ULP_SLEEP_TIME * 1000)
+    # Avoid skipping midday checkup, wake once before midday
+    (year, month, mdate, hour, minute, second, wday, yday) = localtime()
+    target_time = (year, month, mdate, 12, 0, second, wday, yday)
+    seconds_to_midday = mktime(target_time) - mktime(localtime())
+    if (ULP_SLEEP_TIME >= 3600) and (seconds_to_midday >= 3600):
+        deepsleep((seconds_to_midday - 180) * 1000)
+    else:
+        deepsleep(ULP_SLEEP_TIME * 1000)
 
 
 if __name__ == "__main__":
