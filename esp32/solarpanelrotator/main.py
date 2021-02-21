@@ -100,6 +100,8 @@ try:
         TIMEZONE_DIFFERENCE = runtimedata['TIMEZONE_DIFFERENCE']
         LONGITUDE = runtimedata['LONGITUDE']
         LATITUDE = runtimedata['LATITUDE']
+        MICROSWITCH_STEPS = runtimedata['MICROSWITCH_STEPS']
+
 
 
 except OSError:
@@ -130,7 +132,10 @@ class StepperMotor(object):
         #  0.5 spur gear ratio (9:18 gears), half steps multiply with 2, ~ 1018 steps full round
         self.steps_for_minute = int((24 * 60) / (self.full_rotation * 2))  # 1440 / ~1018 ~ 1.4 steps per minute
         self.table_turning = False
-        self.microswitch_steps = 0
+        if MICROSWITCH_STEPS is None:
+            self.microswitch_steps = 0
+        else:
+            self.microswitch_steps = MICROSWITCH_STEPS
         if STEPPER_LAST_STEP is not None:
             self.steps_taken = STEPPER_LAST_STEP
         else:
@@ -237,6 +242,7 @@ class StepperMotor(object):
 
     def turn_to_limiter(self, keepclosed=False):
         global STEPPER_LAST_STEP
+        global MICROSWITCH_STEPS
         if DEBUG_ENABLED == 1:
             print("Starting rotation counterclockwise until limiter switch turns off...")
         starttime = ticks_ms()
@@ -253,6 +259,7 @@ class StepperMotor(object):
                 self.microswitch_steps += 1
         self.table_turning = False
         STEPPER_LAST_STEP = self.microswitch_steps
+        MICROSWITCH_STEPS = self.microswitch_steps
 
     def search_best_voltage_position(self):
         global TURNTABLE_ZEROTIME
@@ -478,7 +485,7 @@ def main():
         # Rotate turntable to limiter for night
         if daytime is False:
             # Do not update LAST_UPTIME!
-            if STEPPER_LAST_STEP > panel_motor.microswitch_steps:
+            if STEPPER_LAST_STEP > MICROSWITCH_STEPS:
                 panel_motor.turn_to_limiter()
             STEPPER_LAST_STEP = panel_motor.steps_taken
 
@@ -507,6 +514,7 @@ def main():
     runtimedata['TIMEZONE_DIFFERENCE'] = TIMEZONE_DIFFERENCE
     runtimedata['LONGITUDE'] = LONGITUDE
     runtimedata['LATITUDE'] = LATITUDE
+    runtimedata['MICROSWITCH_STEPS'] = MICROSWITCH_STEPS
 
     try:
         with open('runtimeconfig.json', 'w') as f3:
