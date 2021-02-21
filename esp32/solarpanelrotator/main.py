@@ -440,7 +440,9 @@ def main():
                                                                               panel_motor.direction,
                                                                               panel_motor.max_voltage,
                                                                               panel_motor.step_max_index))
-        if TURNTABLE_ZEROTIME is not None:
+
+        #  Normal rotation same day
+        if (TURNTABLE_ZEROTIME is not None) and (localtime()[2] == LAST_UPTIME[2]):
             timediff_min = int((mktime(localtime()) - mktime(LAST_UPTIME)) / 60)
             voltage = solarpanelreader.read()
             for i in range(1, timediff_min * panel_motor.steps_for_minute):
@@ -450,6 +452,19 @@ def main():
                 if DEBUG_ENABLED == 1:
                     print("Rotated too much, rotating back half of time difference!")
                 for i in range(1, int(timediff_min / 2) * panel_motor.steps_for_minute):
+                    panel_motor.step("ccw")
+
+        # Normal rotation next day morning
+        if (TURNTABLE_ZEROTIME is not None) and (localtime()[2] != LAST_UPTIME[2]):
+            voltage = solarpanelreader.read()
+            # Turn to east, panel shall be in the limiter already
+            for i in range(1, panel_motor.east):
+                panel_motor.step("cw")
+            # Check that we really got best voltage
+            if (solarpanelreader.read() < voltage) and (panel_motor.steps_taken > STEPPER_LAST_STEP):
+                if DEBUG_ENABLED == 1:
+                    print("Rotated too much, rotating back half of east position!")
+                for i in range(1, int(panel_motor.east / 2)):
                     panel_motor.step("ccw")
 
         # Rotate turntable to limiter for night
