@@ -55,6 +55,7 @@ the sun is, which also means best voltage.
            Ready to go with MQTT and BME280
 19.2.2021: Added error handling, runtimeconfig.json handling, rotation based on time differences and SOUTH_STEP etc.
 20.2.2021: Changed stepper motor calculation, added (ported) Suntime calculation for sunset and sunrise.
+21.2.2021: Fixed zeroposition, added counter to measure steps needed to bypass the limiter switch etc.
 """
 
 import Steppermotor
@@ -129,6 +130,7 @@ class StepperMotor(object):
         #  0.5 spur gear ratio (9:18 gears), half steps multiply with 2, ~ 1018 steps full round
         self.steps_for_minute = int((24 * 60) / (self.full_rotation * 2))  # 1440 / ~1018 ~ 1.4 steps per minute
         self.table_turning = False
+        self.microswitch_steps = 0
         if STEPPER_LAST_STEP is not None:
             self.steps_taken = STEPPER_LAST_STEP
         else:
@@ -234,19 +236,23 @@ class StepperMotor(object):
                 self.table_turning = False
 
     def turn_to_limiter(self, keepclosed=False):
+        global STEPPER_LAST_STEP
         if DEBUG_ENABLED == 1:
             print("Starting rotation counterclockwise until limiter switch turns off...")
         starttime = ticks_ms()
         # Maximum time to turn full round is about 22 seconds.
         while limiter_switch.value() == 1 and ((ticks_ms() - starttime) < 22000):
             self.step("ccw")
+        self.microswitch_steps = 0
         if DEBUG_ENABLED == 1:
             print("Switch on, taking a few steps back to open the switch...")
         if keepclosed is False:
             # Take a few steps back to open the switch
             while limiter_switch.value() == 0:
                 self.step("cw", overrideswitch=True)
+                self.microswitch_steps += 1
         self.table_turning = False
+        STEPPER_LAST_STEP = self.microswitch_steps
 
     def search_best_voltage_position(self):
         global TURNTABLE_ZEROTIME
@@ -445,6 +451,7 @@ def main():
         if (TURNTABLE_ZEROTIME is not None) and (localtime()[2] == LAST_UPTIME[2]):
             timediff_min = int((mktime(localtime()) - mktime(LAST_UPTIME)) / 60)
             voltage = solarpanelreader.read()
+            LAST_UPTIME = localtime()
             for i in range(1, timediff_min * panel_motor.steps_for_minute):
                 panel_motor.step("cw")
             # Check that we really got best voltage
@@ -457,6 +464,7 @@ def main():
         # Normal rotation next day morning
         if (TURNTABLE_ZEROTIME is not None) and (localtime()[2] != LAST_UPTIME[2]):
             voltage = solarpanelreader.read()
+            LAST_UPTIME = localtime()
             # Turn to east, panel shall be in the limiter already
             for i in range(1, panel_motor.east):
                 panel_motor.step("cw")
@@ -469,7 +477,8 @@ def main():
 
         # Rotate turntable to limiter for night
         if daytime is False:
-            if STEPPER_LAST_STEP > 1:
+            # Do not update LAST_UPTIME!
+            if STEPPER_LAST_STEP > panel_motor.microswitch_steps:
                 panel_motor.turn_to_limiter()
             STEPPER_LAST_STEP = panel_motor.steps_taken
 
@@ -487,7 +496,7 @@ def main():
     runtimedata['LAST_BATTERY_VOLTAGE'] = (batteryreader.read() / 1000) * 2
     runtimedata['BATTERY_LOW_VOLTAGE'] = BATTERY_LOW_VOLTAGE
     runtimedata['BATTERY_ADC_MULTIPLIER'] = BATTERY_ADC_MULTIPLIER
-    runtimedata['LAST_UPTIME'] = localtime()
+    runtimedata['LAST_UPTIME'] = LAST_UPTIME
     runtimedata['LAST_TEMP'] = LAST_TEMP
     runtimedata['LAST_HUMIDITY'] = LAST_HUMIDITY
     runtimedata['LAST_PRESSURE'] = LAST_PRESSURE
