@@ -324,13 +324,13 @@ def resolve_dst_and_set_time():
 
     (year, month, mdate, hour, minute, second, wday, yday) = localtime(now)
 
-    if year < 2020:
+    if year < 2021:
         if DEBUG_ENABLED == 1:
             print("Time not set correctly!")
         return False
 
-    dstend = mktime((year, 10, (31 - (int(5 * year / 4 + 4)) % 7), 4, 0, 0, 0, 6, 0))
-    dstbegin = mktime((year, 3, (31 - (int(5 * year / 4 + 5)) % 7), 3, 0, 0, 0, 6, 0))
+    dstend = mktime((year, 10, (31 - (int(5 * year / 4 + 1)) % 7), 4, 0, 0, 0, 6, 0))
+    dstbegin = mktime((year, 3, (31 - (int(5 * year / 4 + 4)) % 7), 3, 0, 0, 0, 6, 0))
 
     if TIMEZONE_DIFFERENCE >= 0:
         if (now > dstbegin) and (now < dstend):
