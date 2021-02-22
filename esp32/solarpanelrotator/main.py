@@ -302,8 +302,8 @@ class StepperMotor(object):
             self.step("ccw")
         TURNTABLE_ZEROTIME = localtime()
         #  The sun shall be about south at LOCAL 12:00 winter time (summer +1h)
-        if localtime()[3] == 12 - TIMEZONE_DIFFERENCE:
-            panel_motor.southstep = self.steps_taken
+        if localtime()[3] == 12:
+            self.southstep = self.steps_taken
             if DEBUG_ENABLED == 1:
                 print("South step %s set." % panel_motor.southstep)
         self.table_turning = False
@@ -435,6 +435,7 @@ except OSError as e:
 client = MQTTClient(CLIENT_ID, MQTT_SERVER, MQTT_PORT, MQTT_USER, MQTT_PASSWORD)
 
 resolve_dst_and_set_time()
+
 if dst_on is True:
     # Sun rise or set calculation. Timezone drift from the UTC!
     sun = Sun(LATITUDE, LONGITUDE, TIMEZONE_DIFFERENCE + 1)
@@ -448,6 +449,7 @@ def main():
     global STEPPER_LAST_STEP
     global ULP_SLEEP_TIME
     global SOUTH_STEP
+    global TURNTABLE_ZEROTIME
 
     sunrise = sun.get_sunrise_time() + (00, 00, 00)
     sunset = sun.get_sunset_time() + (00, 00, 00)
@@ -497,8 +499,7 @@ def main():
                                                                               panel_motor.step_max_index))
 
         # Midday checkup for south position
-        if (panel_motor.southstep is None) and (TURNTABLE_ZEROTIME is not None) and \
-                (localtime()[3] == 12 - TIMEZONE_DIFFERENCE):
+        if (SOUTH_STEP is None) and (TURNTABLE_ZEROTIME is not None) and (localtime()[3] == 12):
             panel_motor.search_best_voltage_position()
             STEPPER_LAST_STEP = panel_motor.steps_taken
             SOUTH_STEP = panel_motor.southstep
@@ -541,12 +542,26 @@ def main():
                 for i in range(1, int(panel_motor.east / 2)):
                     panel_motor.step("ccw")
 
-        # Rotate turntable to limiter for night
-        if daytime is False:
-            # Do not update LAST_UPTIME!
-            if STEPPER_LAST_STEP > MICROSWITCH_STEPS:
-                panel_motor.turn_to_limiter()
+        # Calibrate again once a week
+        if (localtime()[2] - TURNTABLE_ZEROTIME[2] >= 7) and (localtime()[3] == 12):
+            panel_motor.search_best_voltage_position()
             STEPPER_LAST_STEP = panel_motor.steps_taken
+            SOUTH_STEP = panel_motor.southstep
+            TURNTABLE_ZEROTIME = localtime()
+            if LAST_UPTIME is None:
+                LAST_UPTIME = localtime()
+            if DEBUG_ENABLED == 1:
+                print("Best position: %s/%s degrees, voltage %s, step %s." % (panel_motor.panel_time,
+                                                                              panel_motor.direction,
+                                                                              panel_motor.max_voltage,
+                                                                              panel_motor.step_max_index))
+
+    # Rotate turntable to limiter for night
+    if daytime is False:
+        # Do not update LAST_UPTIME!
+        if STEPPER_LAST_STEP > MICROSWITCH_STEPS:
+            panel_motor.turn_to_limiter()
+        STEPPER_LAST_STEP = panel_motor.steps_taken
 
     try:
         mqtt_report()
@@ -588,8 +603,12 @@ def main():
     #  Deactivate seoncary circuit
     secondarycircuit(1)
 
-    n = 0
+    # Drop WiFi connection, reconnect at boot.py
+    if network.WLAN(network.STA_IF).config('essid') != '':
+        network.WLAN(network.STA_IF).disconnect()
 
+    # Keep system up in case WebREPL is needed
+    n = 0
     while n < KEEP_AWAKE_TIME:
         if DEBUG_ENABLED == 1:
             print("Going to sleep % seconds. Sleeping in %s seconds. Ctrl+C to break."
