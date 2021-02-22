@@ -56,17 +56,20 @@ the sun is, which also means best voltage.
 19.2.2021: Added error handling, runtimeconfig.json handling, rotation based on time differences and SOUTH_STEP etc.
 20.2.2021: Changed stepper motor calculation, added (ported) Suntime calculation for sunset and sunrise.
 21.2.2021: Fixed zeroposition, added counter to measure steps needed to bypass the limiter switch etc.
+22.2.2021: Added DST calculation and set localtime() from timedifference
 """
 
 import Steppermotor
 from machine import I2C, Pin, ADC, reset, deepsleep
 from utime import sleep, localtime, mktime, ticks_ms
+import ntptime
 import gc
 from umqttsimple import MQTTClient
 import network
 from json import load, dump
 import BME280_float as BmE
 from Suntime import Sun
+gc.collect()
 
 try:
     f = open('parameters.py', "r")
@@ -103,11 +106,14 @@ try:
         MICROSWITCH_STEPS = runtimedata['MICROSWITCH_STEPS']
 
 
-
 except OSError:
     print("Runtime parameters missing. Can not continue!")
     sleep(30)
     raise
+
+
+''' Globals '''
+dst_on = None
 
 
 class StepperMotor(object):
@@ -303,9 +309,55 @@ class StepperMotor(object):
         self.table_turning = False
 
 
-def resolve_date():
+def resolve_dst_and_set_time():
+    global TIMEZONE_DIFFERENCE
+    global dst_on
+    # This is most stupid thing what humans can do!
+    # Rules for Finland: DST ON: March last Sunday at 03:00 + 1h, DST OFF: October last Sunday at 04:00 - 1h
+    # Sets localtime to DST localtime
+    if network.WLAN(network.STA_IF).config('essid') == '':
+        now = mktime(localtime())
+        if DEBUG_ENABLED == 1:
+            print("Network down! Can not set time from NTP!")
+    else:
+        now = ntptime.time()
+
+    (year, month, mdate, hour, minute, second, wday, yday) = localtime(now)
+
+    if year < 2020:
+        if DEBUG_ENABLED == 1:
+            print("Time not set correctly!")
+        return False
+
+    dstend = mktime((year, 10, (31 - (int(5 * year / 4 + 4)) % 7), 4, 0, 0, 0, 6, 0))
+    dstbegin = mktime((year, 3, (31 - (int(5 * year / 4 + 5)) % 7), 3, 0, 0, 0, 6, 0))
+
+    if TIMEZONE_DIFFERENCE >= 0:
+        if (now > dstbegin) and (now < dstend):
+            dst_on = True
+            ntptime.NTP_DELTA = 3155673600 - ((TIMEZONE_DIFFERENCE + 1) * 3600)
+        else:
+            dst_on = False
+            ntptime.NTP_DELTA = 3155673600 - (TIMEZONE_DIFFERENCE * 3600)
+    else:
+        if (now > dstend) and (now < dstbegin):
+            dst_on = False
+            ntptime.NTP_DELTA = 3155673600 - (TIMEZONE_DIFFERENCE * 3600)
+        else:
+            dst_on = True
+            ntptime.NTP_DELTA = 3155673600 - ((TIMEZONE_DIFFERENCE + 1) * 3600)
+    if dst_on is None:
+        if DEBUG_ENABLED == 1:
+            print("DST calculation failed!")
+            return False
+    else:
+        ntptime.settime()
+
+
+def resolve_date_local_format():
+    # Finland
     (year, month, mdate, hour, minute, second, wday, yday) = localtime()
-    date = "%s.%s.%s time %s:%s:%s" % (mdate, month, year, "{:02d}".format(hour+TIMEZONE_DIFFERENCE),
+    date = "%s.%s.%s time %s:%s:%s" % (mdate, month, year, "{:02d}".format(hour),
                                        "{:02d}".format(minute), "{:02d}".format(second))
     return date
 
@@ -313,7 +365,7 @@ def resolve_date():
 def error_reporting(error):
     if network.WLAN(network.STA_IF).config('essid') != '':
         # error message: date + time;uptime;devicename;ip;error;free mem
-        errormessage = str(resolve_date()) + ";" + str(ticks_ms()) + ";" \
+        errormessage = str(resolve_date_local_format()) + ";" + str(ticks_ms()) + ";" \
             + str(CLIENT_ID) + ";" + str(network.WLAN(network.STA_IF).ifconfig()) + ";" + str(error) +\
             ";" + str(gc.mem_free())
         client.publish(TOPIC_ERRORS, str(errormessage), retain=False)
@@ -345,6 +397,13 @@ def mqtt_report():
         reset()
 
 
+# Secondary circuit setup
+secondarycircuit = Pin(SECONDARY_ACTIVATION_PIN, mode=Pin.OPEN_DRAIN, pull=-1)
+
+#  Activate secondary circuit. Sensors will start measuring and motor can turn.
+secondarycircuit(0)
+sleep(1)
+
 """ Global objects """
 batteryreader = ADC(Pin(BATTERY_ADC_PIN))
 # Attennuation below 1 volts 11 db
@@ -375,11 +434,12 @@ except OSError as e:
 # MQTT
 client = MQTTClient(CLIENT_ID, MQTT_SERVER, MQTT_PORT, MQTT_USER, MQTT_PASSWORD)
 
-# Secondary circuit setup
-secondarycircuit = Pin(SECONDARY_ACTIVATION_PIN, mode=Pin.OPEN_DRAIN, pull=-1)
-
-# Sun rise or set calculation. Timezone drift from the UTC!
-sun = Sun(LATITUDE, LONGITUDE, TIMEZONE_DIFFERENCE)
+resolve_dst_and_set_time()
+if dst_on is True:
+    # Sun rise or set calculation. Timezone drift from the UTC!
+    sun = Sun(LATITUDE, LONGITUDE, TIMEZONE_DIFFERENCE + 1)
+else:
+    sun = Sun(LATITUDE, LONGITUDE, TIMEZONE_DIFFERENCE)
 
 
 def main():
@@ -391,7 +451,7 @@ def main():
 
     sunrise = sun.get_sunrise_time() + (00, 00, 00)
     sunset = sun.get_sunset_time() + (00, 00, 00)
-    timenowsec = (mktime(localtime())+(TIMEZONE_DIFFERENCE*60*60))
+    timenowsec = (mktime(localtime()))
 
     if (timenowsec > mktime(sunrise)) and (timenowsec < mktime(sunset)):
         daytime = True
@@ -420,10 +480,6 @@ def main():
                 raise
             elif type(e).__name__ == "OSError":
                 raise
-
-    n = 0
-    #  Activate secondary circuit. Sensors will start measuring and motor can turn.
-    secondarycircuit(0)
 
     # Do not turn nightime
 
@@ -472,9 +528,12 @@ def main():
         if (TURNTABLE_ZEROTIME is not None) and (localtime()[2] != LAST_UPTIME[2]):
             voltage = solarpanelreader.read()
             LAST_UPTIME = localtime()
-            # Turn to east, panel shall be in the limiter already
-            for i in range(1, panel_motor.east):
-                panel_motor.step("cw")
+            if panel_motor.east is not None:
+                # Turn to east, panel shall be in the limiter already
+                for i in range(1, panel_motor.east):
+                    panel_motor.step("cw")
+            else:
+                panel_motor.turn_to_limiter()
             # Check that we really got best voltage
             if (solarpanelreader.read() < voltage) and (panel_motor.steps_taken > STEPPER_LAST_STEP):
                 if DEBUG_ENABLED == 1:
@@ -499,7 +558,7 @@ def main():
 
     # Save parameters to the file
     runtimedata['TURNTABLE_ZEROTIME'] = TURNTABLE_ZEROTIME
-    runtimedata['STEPPER_LAST_STEP'] = panel_motor.steps_taken - 1
+    runtimedata['STEPPER_LAST_STEP'] = panel_motor.steps_taken
     runtimedata['LAST_BATTERY_VOLTAGE'] = (batteryreader.read() / 1000) * 2
     runtimedata['BATTERY_LOW_VOLTAGE'] = BATTERY_LOW_VOLTAGE
     runtimedata['BATTERY_ADC_MULTIPLIER'] = BATTERY_ADC_MULTIPLIER
@@ -528,6 +587,8 @@ def main():
 
     #  Deactivate seoncary circuit
     secondarycircuit(1)
+
+    n = 0
 
     while n < KEEP_AWAKE_TIME:
         if DEBUG_ENABLED == 1:
