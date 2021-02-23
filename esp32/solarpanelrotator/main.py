@@ -286,6 +286,7 @@ class StepperMotor(object):
             self.solar_voltage = (solarpanelreader.read() / 1000) * 2  # due to voltage splitter
             if self.solar_voltage is not None:
                 self.steps_voltages.append(self.solar_voltage)
+                gc.collect()
         if len(self.steps_voltages) < self.max_steps_to_rotate - 1:
             if DEBUG_ENABLED == 1:
                 print("Some values missing! Should be %s, is %s" % (self.max_steps_to_rotate, len(self.steps_voltages)))
@@ -390,6 +391,9 @@ def mqtt_report():
         if bmes.values[1][:-3] is not None:
             client.publish(TOPIC_PRESSURE, bmes.values[1][:-3], retain=0, qos=0)
             LAST_PRESSURE = bmes.values[1][:-3]
+        if batteryreader.read() > 0:
+            client.publish(TOPIC_BATTERY_VOLTAGE, batteryreader.read(), retain=0, qos=0)
+
     else:
         if DEBUG_ENABLED == 1:
             print("Network down! Can not publish to MQTT! Boot in 10s.")
@@ -483,6 +487,8 @@ def main():
             elif type(e).__name__ == "OSError":
                 raise
 
+    gc.collect()
+
     # Do not turn nightime
 
     if daytime is True:
@@ -490,6 +496,7 @@ def main():
         if TURNTABLE_ZEROTIME is None:
             panel_motor.search_best_voltage_position()
             STEPPER_LAST_STEP = panel_motor.steps_taken
+            gc.collect()
             if LAST_UPTIME is None:
                 LAST_UPTIME = localtime()
             if DEBUG_ENABLED == 1:
@@ -503,6 +510,7 @@ def main():
             panel_motor.search_best_voltage_position()
             STEPPER_LAST_STEP = panel_motor.steps_taken
             SOUTH_STEP = panel_motor.southstep
+            gc.collect()
             if LAST_UPTIME is None:
                 LAST_UPTIME = localtime()
             if DEBUG_ENABLED == 1:
@@ -524,6 +532,7 @@ def main():
                     print("Rotated too much, rotating back half of time difference!")
                 for i in range(1, int(timediff_min / 2) * panel_motor.steps_for_minute):
                     panel_motor.step("ccw")
+            gc.collect()
 
         # Normal rotation next day morning
         if (TURNTABLE_ZEROTIME is not None) and (localtime()[2] != LAST_UPTIME[2]):
@@ -541,6 +550,7 @@ def main():
                     print("Rotated too much, rotating back half of east position!")
                 for i in range(1, int(panel_motor.east / 2)):
                     panel_motor.step("ccw")
+            gc.collect()
 
         # Calibrate again once a week
         if (localtime()[2] - TURNTABLE_ZEROTIME[2] >= 7) and (localtime()[3] == 12):
@@ -548,6 +558,7 @@ def main():
             STEPPER_LAST_STEP = panel_motor.steps_taken
             SOUTH_STEP = panel_motor.southstep
             TURNTABLE_ZEROTIME = localtime()
+            gc.collect()
             if LAST_UPTIME is None:
                 LAST_UPTIME = localtime()
             if DEBUG_ENABLED == 1:
@@ -562,6 +573,7 @@ def main():
         if STEPPER_LAST_STEP > MICROSWITCH_STEPS:
             panel_motor.turn_to_limiter()
         STEPPER_LAST_STEP = panel_motor.steps_taken
+        gc.collect()
 
     try:
         mqtt_report()
