@@ -392,7 +392,7 @@ def mqtt_report():
             client.publish(TOPIC_PRESSURE, bmes.values[1][:-3], retain=0, qos=0)
             LAST_PRESSURE = bmes.values[1][:-3]
         if batteryreader.read() > 0:
-            client.publish(TOPIC_BATTERY_VOLTAGE, batteryreader.read(), retain=0, qos=0)
+            client.publish(TOPIC_BATTERY_VOLTAGE, str((batteryreader.read() / 1000) * 2), retain=0, qos=0)
 
     else:
         if DEBUG_ENABLED == 1:
