@@ -1,7 +1,7 @@
 """
 For ESP32-Wrover or ESP32-Wroom in ULP (Ultra Low Power) mode.
 
-Operation: fist time rotates full round and If SOUTH_STEP is not set, turns solar panel towards the sun and measures 
+Operation: fist time rotates full round and If SOUTH_STEP is not set, turns solar panel towards the sun and measures
 with BME280 temperature, humidity and pressure and sends information to the mqtt broker and then sleeps.
 
 If SOUTH_STEP is set, use information for direction stepping.
@@ -42,6 +42,9 @@ the sun is, which also means best voltage.
 
 3D model for the case at https://gallery.autodesk.com/fusion360/users/4HPYK2VXATYM
 3D printable case at https://www.thingiverse.com/thing:4758620
+
+If the code breaks, execute f4.close() and download boottime.log
+
 """
 
 import Steppermotor
@@ -54,11 +57,9 @@ import network
 from json import load, dump
 import BME280_float as BmE
 from Suntime import Sun
-gc.collect()
-
 
 # Boottime logger
-f4 = open('botttime.log', 'w')
+f4 = open('boottime.log', 'w')
 f4.write("----------------\n"
          "Boottime Logger\n"
          "New file started\n"
@@ -108,6 +109,7 @@ f4.write("runtimeconfig.json loaded OK\n")
 
 ''' Globals '''
 dst_on = None
+daytime = False
 
 
 class StepperMotor(object):
@@ -280,6 +282,7 @@ class StepperMotor(object):
             self.solar_voltage = (solarpanelreader.read() / 1000) * 2  # due to voltage splitter
             if self.solar_voltage is not None:
                 self.steps_voltages.append(self.solar_voltage)
+                gc.collect()
         if len(self.steps_voltages) < self.max_steps_to_rotate - 1:
             if DEBUG_ENABLED == 1:
                 print("Some values missing! Should be %s, is %s" % (self.max_steps_to_rotate, len(self.steps_voltages)))
@@ -309,6 +312,7 @@ def resolve_dst_and_set_time():
     # This is most stupid thing what humans can do!
     # Rules for Finland: DST ON: March last Sunday at 03:00 + 1h, DST OFF: October last Sunday at 04:00 - 1h
     # Sets localtime to DST localtime
+    now = mktime(localtime())
     if network.WLAN(network.STA_IF).config('essid') != '':
         try:
             now = ntptime.time()
@@ -316,11 +320,14 @@ def resolve_dst_and_set_time():
             if DEBUG_ENABLED == 1:
                 print("Time not set! Error %s" % e)
             f4.write("Time not set! Error %s\n" % e)
-    else:
-        now = mktime(localtime())
-        if DEBUG_ENABLED == 1:
-            print("Network down! Can not set time from NTP!")
-        f4.write("Network down! Can not set time from NTP!\n")
+            sleep(5)
+            try:
+                now = ntptime.time()
+            except OSError as e:
+                if DEBUG_ENABLED == 1:
+                    print("Time not set #2! Error %s" % e)
+                f4.write("Time not set #2! Using old time. Error %s\n" % e)
+                now = mktime(localtime())
 
     (year, month, mdate, hour, minute, second, wday, yday) = localtime(now)
 
@@ -469,6 +476,15 @@ if dst_on is True:
 else:
     sun = Sun(LATITUDE, LONGITUDE, TIMEZONE_DIFFERENCE)
 
+sunrise = sun.get_sunrise_time() + (00, 00, 00)
+sunset = sun.get_sunset_time() + (00, 00, 00)
+timenowsec = (mktime(localtime()))
+
+if (timenowsec > mktime(sunrise)) and (timenowsec < mktime(sunset)):
+    daytime = True
+else:
+    daytime = False
+
 
 def main():
     global LAST_UPTIME
@@ -478,18 +494,11 @@ def main():
     global SOUTH_STEP
     global TURNTABLE_ZEROTIME
 
-    sunrise = sun.get_sunrise_time() + (00, 00, 00)
-    sunset = sun.get_sunset_time() + (00, 00, 00)
-    timenowsec = (mktime(localtime()))
-
-    if (timenowsec > mktime(sunrise)) and (timenowsec < mktime(sunset)):
-        daytime = True
-    else:
-        daytime = False
+    gc.collect()
 
     if DEBUG_ENABLED == 1:
         print("Sunrise today %s, sunset today %s, now is daytime %s" % (sunrise, sunset, daytime))
-        f4.write("Sunrise today %s, sunset today %s, now is daytime %s\n" % (sunrise, sunset, daytime))
+        f4.write("Sunrise today %s, sunset today %s, now is daytime %s\n" % (str(sunrise), str(sunset), str(daytime)))
 
     if network.WLAN(network.STA_IF).config('essid') != '':
         try:
@@ -504,104 +513,105 @@ def main():
                 pass
     f4.write("MQTT Initialized\n")
 
-    gc.collect()
-
     # Do not turn nightime
 
-    f4.write("Daytime is %s startin operations\n" % daytime)
+    f4.write("Daytime is %s, starting operations...\n" % daytime)
 
-    if daytime is True:
-        #  Find best step and direction for the solar panel. Do once when boot, then if needed
-        if TURNTABLE_ZEROTIME is None:
-            f4.write("%s: TURNTABLE_ZEROTIME is None, first time turns\n" % localtime())
+    #  Find best step and direction for the solar panel. Do once when boot, then if needed
+    if (daytime is True) and (TURNTABLE_ZEROTIME is None):
+        f4.write("%s: TURNTABLE_ZEROTIME is None, first time turns\n" % str(localtime()))
+        try:
             panel_motor.search_best_voltage_position()
-            STEPPER_LAST_STEP = panel_motor.steps_taken
-            if LAST_UPTIME is None:
-                LAST_UPTIME = localtime()
-            if DEBUG_ENABLED == 1:
-                print("Best position: %s/%s degrees, voltage %s, step %s." % (panel_motor.panel_time,
-                                                                              panel_motor.direction,
-                                                                              panel_motor.max_voltage,
-                                                                              panel_motor.step_max_index))
-                f4.write(("Best position: %s/%s degrees, voltage %s, step %s.\n" % (panel_motor.panel_time,
-                                                                                    panel_motor.direction,
-                                                                                    panel_motor.max_voltage,
-                                                                                    panel_motor.step_max_index)))
+        except MemoryError as e:
+            f4.write("%s: MEMORY ERROR %s" % (str(localtime()), e))
+            f4.close()
+        STEPPER_LAST_STEP = panel_motor.steps_taken
+        if LAST_UPTIME is None:
+            LAST_UPTIME = localtime()
+        if DEBUG_ENABLED == 1:
+            print("Best position: %s/%s degrees, voltage %s, step %s." % (panel_motor.panel_time,
+                                                                          panel_motor.direction,
+                                                                          panel_motor.max_voltage,
+                                                                          panel_motor.step_max_index))
+        f4.write(("Best position: %s/%s degrees, voltage %s, step %s.\n" % (panel_motor.panel_time,
+                                                                            panel_motor.direction,
+                                                                            panel_motor.max_voltage,
+                                                                            panel_motor.step_max_index)))
 
         # Midday checkup for south position
-        if (SOUTH_STEP is None) and (TURNTABLE_ZEROTIME is not None) and (localtime()[3] == 12):
-            f4.write("%s: Southsteps setting\n" % localtime())
+    if (daytime is True) and (SOUTH_STEP is None) and (TURNTABLE_ZEROTIME is not None) and (localtime()[3] == 12):
+        f4.write("%s: Southsteps setting\n" % str(localtime()))
+        try:
             panel_motor.search_best_voltage_position()
-            STEPPER_LAST_STEP = panel_motor.steps_taken
-            SOUTH_STEP = panel_motor.southstep
-            if LAST_UPTIME is None:
-                LAST_UPTIME = localtime()
-            if DEBUG_ENABLED == 1:
-                print("Best position: %s/%s degrees, voltage %s, step %s." % (panel_motor.panel_time,
-                                                                              panel_motor.direction,
-                                                                              panel_motor.max_voltage,
-                                                                              panel_motor.step_max_index))
-                f4.write(("Best position: %s/%s degrees, voltage %s, step %s.\n" % (panel_motor.panel_time,
-                                                                                    panel_motor.direction,
-                                                                                    panel_motor.max_voltage,
-                                                                                    panel_motor.step_max_index)))
-
-        #  Normal rotation same day
-        if (TURNTABLE_ZEROTIME is not None) and (localtime()[2] == LAST_UPTIME[2]):
-            f4.write("%s: Normal rotation begings\n" % localtime())
-            timediff_min = int((mktime(localtime()) - mktime(LAST_UPTIME)) / 60)
-            voltage = solarpanelreader.read()
+        except MemoryError as e:
+            f4.write("%s: MEMORY ERROR %s" % (str(localtime()), e))
+            f4.close()
+        STEPPER_LAST_STEP = panel_motor.steps_taken
+        SOUTH_STEP = panel_motor.southstep
+        if LAST_UPTIME is None:
             LAST_UPTIME = localtime()
-            for i in range(1, timediff_min * panel_motor.steps_for_minute):
+        if DEBUG_ENABLED == 1:
+            print("Best position: %s/%s degrees, voltage %s, step %s." % (panel_motor.panel_time,
+                                                                          panel_motor.direction,
+                                                                          panel_motor.max_voltage,
+                                                                          panel_motor.step_max_index))
+        f4.write(("Best position: %s/%s degrees, voltage %s, step %s.\n" % (panel_motor.panel_time,
+                                                                            panel_motor.direction,
+                                                                            panel_motor.max_voltage,
+                                                                            panel_motor.step_max_index)))
+
+    #  Normal rotation same day
+    if (daytime is True) and (TURNTABLE_ZEROTIME is not None) and (localtime()[2] == LAST_UPTIME[2]):
+        f4.write("%s: Normal rotation begings\n" % str(localtime()))
+        timediff_min = int((mktime(localtime()) - mktime(LAST_UPTIME)) / 60)
+        voltage = solarpanelreader.read()
+        LAST_UPTIME = localtime()
+        for i in range(1, timediff_min * panel_motor.steps_for_minute):
+            panel_motor.step("cw")
+        # Check that we really got best voltage
+        if (solarpanelreader.read() < voltage) and (panel_motor.steps_taken > STEPPER_LAST_STEP):
+            if DEBUG_ENABLED == 1:
+                print("Rotated too much, rotating back half of time difference!")
+            f4.write("Rotated too much, rotating back half of time difference!\n")
+            for i in range(1, int(timediff_min / 2) * panel_motor.steps_for_minute):
+                panel_motor.step("ccw")
+
+    # Normal rotation next day morning
+    if (daytime is True) and (TURNTABLE_ZEROTIME is not None) and (localtime()[2] != LAST_UPTIME[2]):
+        voltage = solarpanelreader.read()
+        LAST_UPTIME = localtime()
+        if panel_motor.east is not None:
+            # Turn to east, panel shall be in the limiter already
+            for i in range(1, panel_motor.east):
                 panel_motor.step("cw")
-            # Check that we really got best voltage
-            if (solarpanelreader.read() < voltage) and (panel_motor.steps_taken > STEPPER_LAST_STEP):
-                if DEBUG_ENABLED == 1:
-                    print("Rotated too much, rotating back half of time difference!")
-                    f4.write("Rotated too much, rotating back half of time difference!\n")
-                for i in range(1, int(timediff_min / 2) * panel_motor.steps_for_minute):
-                    panel_motor.step("ccw")
-            gc.collect()
-
-        # Normal rotation next day morning
-        if (TURNTABLE_ZEROTIME is not None) and (localtime()[2] != LAST_UPTIME[2]):
-            voltage = solarpanelreader.read()
-            LAST_UPTIME = localtime()
-            if panel_motor.east is not None:
-                # Turn to east, panel shall be in the limiter already
-                for i in range(1, panel_motor.east):
-                    panel_motor.step("cw")
-            else:
-                panel_motor.turn_to_limiter()
-            # Check that we really got best voltage
-            if (solarpanelreader.read() < voltage) and (panel_motor.steps_taken > STEPPER_LAST_STEP):
-                if DEBUG_ENABLED == 1:
-                    print("Rotated too much, rotating back half of east position!")
-                    f4.write("Rotated too much, rotating back half of east position!\n")
-                for i in range(1, int(panel_motor.east / 2)):
-                    panel_motor.step("ccw")
-            gc.collect()
-
-        # Calibrate again once a week
-        if (localtime()[2] - TURNTABLE_ZEROTIME[2] >= 7) and (localtime()[3] == 12):
-            f4.write("%s: Calibration begins\n" % localtime())
-            panel_motor.search_best_voltage_position()
-            STEPPER_LAST_STEP = panel_motor.steps_taken
-            SOUTH_STEP = panel_motor.southstep
-            TURNTABLE_ZEROTIME = localtime()
-            gc.collect()
-            if LAST_UPTIME is None:
-                LAST_UPTIME = localtime()
+        else:
+            panel_motor.turn_to_limiter()
+        # Check that we really got best voltage
+        if (solarpanelreader.read() < voltage) and (panel_motor.steps_taken > STEPPER_LAST_STEP):
             if DEBUG_ENABLED == 1:
-                print("Best position: %s/%s degrees, voltage %s, step %s." % (panel_motor.panel_time,
-                                                                              panel_motor.direction,
-                                                                              panel_motor.max_voltage,
-                                                                              panel_motor.step_max_index))
-                f4.write("Best position: %s/%s degrees, voltage %s, step %s.\n" % (panel_motor.panel_time,
-                                                                                   panel_motor.direction,
-                                                                                   panel_motor.max_voltage,
-                                                                                   panel_motor.step_max_index))
+                print("Rotated too much, rotating back half of east position!")
+            f4.write("Rotated too much, rotating back half of east position!\n")
+            for i in range(1, int(panel_motor.east / 2)):
+                panel_motor.step("ccw")
 
+    # Calibrate again once a week
+    if (daytime is True) and (localtime()[2] - TURNTABLE_ZEROTIME[2] >= 7) and (localtime()[3] == 12):
+        f4.write("%s: Calibration begins\n" % str(localtime()))
+        panel_motor.search_best_voltage_position()
+        STEPPER_LAST_STEP = panel_motor.steps_taken
+        SOUTH_STEP = panel_motor.southstep
+        TURNTABLE_ZEROTIME = localtime()
+        if LAST_UPTIME is None:
+            LAST_UPTIME = localtime()
+        if DEBUG_ENABLED == 1:
+            print("Best position: %s/%s degrees, voltage %s, step %s." % (panel_motor.panel_time,
+                                                                          panel_motor.direction,
+                                                                          panel_motor.max_voltage,
+                                                                          panel_motor.step_max_index))
+        f4.write("Best position: %s/%s degrees, voltage %s, step %s.\n" % (panel_motor.panel_time,
+                                                                            panel_motor.direction,
+                                                                            panel_motor.max_voltage,
+                                                                            panel_motor.step_max_index))
     # Rotate turntable to limiter for night
     if daytime is False:
         f4.write("Nightime, turn to limiter\n")
@@ -609,15 +619,14 @@ def main():
         if STEPPER_LAST_STEP > MICROSWITCH_STEPS:
             panel_motor.turn_to_limiter()
         STEPPER_LAST_STEP = panel_motor.steps_taken
-        gc.collect()
-
     f4.write("Begin mqtt reporting\n")
+
     try:
         mqtt_report()
     except OSError as e:
         if DEBUG_ENABLED == 1:
-            f4.write("MQTT Error %s\n" % e)
             print("MQTT Error %s" % e)
+        f4.write("MQTT Error %s\n" % e)
 
     f4.write("Begin runtimedata save\n")
     # Save parameters to the file
@@ -661,7 +670,7 @@ def main():
 
     # Keep system up in case WebREPL is needed
     n = 0
-    f4.write("Wait %s seconds\n" % KEEP_AWAKE_TIME)
+    f4.write("Wait %s seconds\n" % str(KEEP_AWAKE_TIME))
     while n < KEEP_AWAKE_TIME:
         if DEBUG_ENABLED == 1:
             print("Going to sleep % seconds. Sleeping in %s seconds. Ctrl+C to break."
@@ -679,7 +688,7 @@ def main():
         f4.close()
         deepsleep(3500 * 1000)
     else:
-        f4.write("ULT Sleep normal %s seconds\n" % ULP_SLEEP_TIME)
+        f4.write("ULP Sleep normal %s seconds\n" % str(ULP_SLEEP_TIME))
         f4.flush()
         f4.close()
         deepsleep(ULP_SLEEP_TIME * 1000)
