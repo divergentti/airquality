@@ -58,7 +58,7 @@ gc.collect()
 
 
 # Boottime logger
-f4 = open('bottime.log', 'w')
+f4 = open('botttime.log', 'w')
 f4.write("----------------\n"
          "Boottime Logger\n"
          "New file started\n"
