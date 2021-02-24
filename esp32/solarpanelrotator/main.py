@@ -1,11 +1,10 @@
 """
 For ESP32-Wrover or ESP32-Wroom in ULP (Ultra Low Power) mode.
 
-Operation: fist time rotates full round and
+Operation: fist time rotates full round and If SOUTH_STEP is not set, turns solar panel towards the sun and measures 
+with BME280 temperature, humidity and pressure and sends information to the mqtt broker and then sleeps.
 
-If SOUTH is not set, turns solar panel towards the sun and measures with BME280 temperature, humidity and pressure
-and sends information to the mqtt broker and then sleeps. Calibrates once a day to the highest voltage from solarpanel.
-
+If SOUTH_STEP is set, use information for direction stepping.
 
 Motor: 5V 28BYJ-48-5V and Steppermotor.py original https://github.com/IDWizard/uln2003/blob/master/uln2003.py
 Solarpanel: CNC110x69-5 volts
@@ -43,21 +42,6 @@ the sun is, which also means best voltage.
 
 3D model for the case at https://gallery.autodesk.com/fusion360/users/4HPYK2VXATYM
 3D printable case at https://www.thingiverse.com/thing:4758620
-
-
-7.12.2020 Jari Hiltunen project start
-8.12.2020 Initial version ready before class splitting. Stepper shall follow the sun.
-17.2.2021 Added limiter switch operation. Limiter switch is installed so that turning counterclockwise switch
-          puller pushes the switch down. Counterwise turn must be limited to maximum steps (about 340 degrees rotation).
-          Added solarpanel voltage reading.
-18.2.2021: Changed to non-asynchronous model, because it does not make sense to have async in ULP mode.
-           Corrected voltage values to conform voltage splitter values (divide by 2).
-           Ready to go with MQTT and BME280
-19.2.2021: Added error handling, runtimeconfig.json handling, rotation based on time differences and SOUTH_STEP etc.
-20.2.2021: Changed stepper motor calculation, added (ported) Suntime calculation for sunset and sunrise.
-21.2.2021: Fixed zeroposition, added counter to measure steps needed to bypass the limiter switch etc.
-22.2.2021: Added DST calculation and set localtime() from timedifference
-23.2.2021: Added boottimelogger
 """
 
 import Steppermotor
