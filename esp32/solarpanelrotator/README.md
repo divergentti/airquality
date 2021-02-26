@@ -13,6 +13,7 @@ Updates tot the code:
 - 21.2.2021: Fixed zeroposition, added counter to measure steps needed to bypass the limiter switch etc.
 - 22.2.2021: Added DST calculation and set localtime() from timedifference
 - 23.2.2021: Added boottimelogger. With this I try to find random bug which seems to cause code to crash. Something escapes from try: except.
+- 26.2.2021: Testing solarpanel charging. Reorganized error trapping and corrected mistakes in StepperMotor-class
 
 Design video https://youtu.be/3X_NrbZY1hA
 Latest 3D printable parts https://www.thingiverse.com/thing:4758620
