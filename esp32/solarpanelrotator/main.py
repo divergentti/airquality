@@ -634,11 +634,6 @@ def main():
     #  Deactivate seoncary circuit
     secondarycircuit(1)
 
-    # Drop WiFi connection, reconnect at boot.py
-    f4.write("Disconnect WiFi\n")
-    if network.WLAN(network.STA_IF).config('essid') != '':
-        network.WLAN(network.STA_IF).disconnect()
-
     # Keep system up in case WebREPL is needed
     n = 0
     f4.write("Wait %s seconds\n" % str(KEEP_AWAKE_TIME))
@@ -649,6 +644,11 @@ def main():
         sleep(1)
         n += 1
 
+    # Drop WiFi connection, reconnect at boot.py
+    f4.write("Disconnect WiFi\n")
+    if network.WLAN(network.STA_IF).config('essid') != '':
+        network.WLAN(network.STA_IF).disconnect()
+    
     # Avoid skipping midday checkup, wake once before midday
     (year, month, mdate, hour, minute, second, wday, yday) = localtime()
     target_time = (year, month, mdate, 12, 0, second, wday, yday)
