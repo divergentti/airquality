@@ -347,6 +347,12 @@ def resolve_dst_and_set_time():
             ntptime.NTP_DELTA = 3155673600 - ((TIMEZONE_DIFFERENCE + 1) * 3600)
     try:
         ntptime.settime()
+    except OverflowError:
+        gc.collect()
+        try:
+            ntptime.settime()
+        except OverflowError:
+            pass
     except OSError as e:
         error_reporting("npttime.settime() error %s " % e)
         f4.write("npttime.settime() error %s\n" % e)
@@ -403,13 +409,9 @@ def mqtt_report():
         reset()
 
 
-try:
-    resolve_dst_and_set_time()
-except OSError as e:
-    error_reporting("Date resolver error %s" % e)
-    f4.write("Date resolver error %s\n" % e)
-    if DEBUG_ENABLED == 1:
-        print("Date resolver error %s" % e)
+gc.collect()
+
+resolve_dst_and_set_time()
 
 if dst_on is True:
     # Sun rise or set calculation. Timezone drift from the UTC!
