@@ -16,13 +16,12 @@ Updates tot the code:
 - 26.2.2021: Testing solarpanel charging. Reorganized error trapping and corrected mistakes in StepperMotor-class
 - 27.2.2021: Most likely catched error which caused code to crash. Relates to ntptime.settime() seldom OverFlow errors.
 
-Design video https://youtu.be/3X_NrbZY1hA
-Latest 3D printable parts https://www.thingiverse.com/thing:4758620
-Operational video https://youtu.be/PPeND70pGnA
-Operational video https://youtu.be/X6Q_mx0qn1I
+* Design video https://youtu.be/3X_NrbZY1hA
+* Latest 3D printable parts https://www.thingiverse.com/thing:4758620
+* Operational video https://youtu.be/PPeND70pGnA
+* Operational video https://youtu.be/X6Q_mx0qn1I
 
 Error debugging with boottime.log:
-
 ----------------
 Boottime Logger
 Old log renamed to old
@@ -34,7 +33,6 @@ runtimeconfig.json loaded OK
 --> find code part after OK and investigate which could cause crash
 
 Normal startup:
-
 ----------------
 Boottime Logger
 Old log renamed to old
