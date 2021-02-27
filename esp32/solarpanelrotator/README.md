@@ -1,4 +1,6 @@
-# Updates tot the code:
+# Updates to the code:
+
+I hate this editor, can not copy and paste text ...
 
 - 7.12.2020 Jari Hiltunen project start
 - 8.12.2020 Initial version ready before class splitting. Stepper shall follow the sun.
