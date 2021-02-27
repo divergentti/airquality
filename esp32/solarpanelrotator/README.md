@@ -23,9 +23,9 @@ I hate this editor, can not copy and paste text ...
 * Operational video https://youtu.be/PPeND70pGnA
 * Operational video https://youtu.be/X6Q_mx0qn1I
 
-Error debugging with boottime.log:
+# Error debugging with boottime.log:
 
-Errored logging:
+* Errored logging:
 * ----------------
 * Boottime Logger
 * Old log renamed to old
@@ -35,9 +35,9 @@ Errored logging:
 *  Parameter.py loaded OK
 * runtimeconfig.json loaded OK
 
-## find code part after OK and investigate which could cause crash
+# find code part after OK and investigate which could cause crash
 
-Normal startup:
+* Normal startup:
 *  ----------------
 * Boottime Logger
 * Old log renamed to old
