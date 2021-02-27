@@ -347,15 +347,19 @@ def resolve_dst_and_set_time():
             ntptime.NTP_DELTA = 3155673600 - ((TIMEZONE_DIFFERENCE + 1) * 3600)
     try:
         ntptime.settime()
-    except OverflowError:
+    except OverflowError as e:
+        f4.write("npttime.settime() error %s\n" % e)
         gc.collect()
+        sleep(2)
         try:
             ntptime.settime()
         except OverflowError:
-            pass
+            reset()
     except OSError as e:
         error_reporting("npttime.settime() error %s " % e)
         f4.write("npttime.settime() error %s\n" % e)
+        f4.close()
+        reset()
 
 
 def resolve_date_local_format():
@@ -648,7 +652,7 @@ def main():
     f4.write("Disconnect WiFi\n")
     if network.WLAN(network.STA_IF).config('essid') != '':
         network.WLAN(network.STA_IF).disconnect()
-    
+
     # Avoid skipping midday checkup, wake once before midday
     (year, month, mdate, hour, minute, second, wday, yday) = localtime()
     target_time = (year, month, mdate, 12, 0, second, wday, yday)
