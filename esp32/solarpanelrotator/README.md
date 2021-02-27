@@ -14,8 +14,54 @@ Updates tot the code:
 - 22.2.2021: Added DST calculation and set localtime() from timedifference
 - 23.2.2021: Added boottimelogger. With this I try to find random bug which seems to cause code to crash. Something escapes from try: except.
 - 26.2.2021: Testing solarpanel charging. Reorganized error trapping and corrected mistakes in StepperMotor-class
+- 27.2.2021: Most likely catched error which caused code to crash. Relates to ntptime.settime() seldom OverFlow errors.
 
 Design video https://youtu.be/3X_NrbZY1hA
 Latest 3D printable parts https://www.thingiverse.com/thing:4758620
 Operational video https://youtu.be/PPeND70pGnA
 Operational video https://youtu.be/X6Q_mx0qn1I
+
+Error debugging with boottime.log:
+
+----------------
+Boottime Logger
+Old log renamed to old
+New file started
+----------------
+Previous boot reason 1 
+Parameter.py loaded OK
+runtimeconfig.json loaded OK
+--> find code part after OK and investigate which could cause crash
+
+Normal startup:
+
+----------------
+Boottime Logger
+Old log renamed to old
+New file started
+----------------
+Previous boot reason 1 
+Parameter.py loaded OK
+runtimeconfig.json loaded OK
+Sunrise today (2021, 2, 27, 7, 34, 0, 0, 0), sunset today (2021, 2, 27, 17, 50, 0, 0, 0), now is daytime True
+Secondary circuit initialized
+Batteryreader circuit initialized
+Solarpanel circuit initialized
+Limiter switch circuit initialized
+Panel motor initialized
+I2C initialized
+BME280 initialized
+MQTTClient object initialized
+Execute main
+Free memory 55920
+MQTT Initialized
+Daytime is True, starting operations...
+(2021, 2, 27, 11, 39, 34, 5, 58): Normal rotation begings
+Rotated too much, rotating back half of time difference!
+Begin mqtt reporting
+Begin runtimedata save
+Runtimeconfig save complete
+Disconnect WiFi
+Wait 60 seconds
+ULP Sleep less than 3600
+
