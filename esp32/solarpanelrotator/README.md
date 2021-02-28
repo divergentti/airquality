@@ -17,6 +17,7 @@ I hate this editor, can not copy and paste text ...
 - 23.2.2021: Added boottimelogger. With this I try to find random bug which seems to cause code to crash. Something escapes from try: except.
 - 26.2.2021: Testing solarpanel charging. Reorganized error trapping and corrected mistakes in StepperMotor-class
 - 27.2.2021: Most likely catched error which caused code to crash. Relates to ntptime.settime() seldom OverFlow errors.
+- 28.2.2021: Rootacause for seldom crashes is ntptime.settime() and now tried to catch error with another approach
 
 * Design video https://youtu.be/3X_NrbZY1hA
 * Latest 3D printable parts https://www.thingiverse.com/thing:4758620
