@@ -309,6 +309,7 @@ class StepperMotor(object):
 def resolve_dst_and_set_time():
     global TIMEZONE_DIFFERENCE
     global dst_on
+    settime_complete = False
     # This is most stupid thing what humans can do!
     # Rules for Finland: DST ON: March last Sunday at 03:00 + 1h, DST OFF: October last Sunday at 04:00 - 1h
     # Sets localtime to DST localtime
@@ -345,21 +346,23 @@ def resolve_dst_and_set_time():
         else:
             dst_on = True
             ntptime.NTP_DELTA = 3155673600 - ((TIMEZONE_DIFFERENCE + 1) * 3600)
-    try:
-        ntptime.settime()
-    except OverflowError as e:
-        f4.write("npttime.settime() error %s\n" % e)
-        gc.collect()
-        sleep(2)
-        try:
-            ntptime.settime()
-        except OverflowError:
+
+    n = 0
+
+    while (settime_complete is False) and (n <= 20):
+        if n >= 20:
+            f4.write("npttime.settime() tried 20 times. Giving up\n")
+            f4.close()
             reset()
-    except OSError as e:
-        error_reporting("npttime.settime() error %s " % e)
-        f4.write("npttime.settime() error %s\n" % e)
-        f4.close()
-        reset()
+        else:
+            try:
+                ntptime.settime()
+                n += 1
+            except Exception as e:
+                # npttime.settime() error overflow converting long int to machine word
+                f4.write("npttime.settime() error %s\n" % e)
+                sleep(10)
+            settime_complete = True
 
 
 def resolve_date_local_format():
