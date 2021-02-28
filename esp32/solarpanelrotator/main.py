@@ -357,8 +357,8 @@ def resolve_dst_and_set_time():
         else:
             try:
                 ntptime.settime()
-                n += 1
             except Exception as e:
+                n += 1
                 # npttime.settime() error overflow converting long int to machine word
                 f4.write("npttime.settime() error %s\n" % e)
                 sleep(10)
