@@ -1,3 +1,22 @@
+# Parts and prices including shipment to Finland
+
+- Solarpanel CNC110x69-5 volts, 2€. From Aliexpress  https://www.aliexpress.com/item/32336133292.html
+- BME280 temperature/moisture/pressure sensor in i2c, 1,6€.
+- ESP32SMD-U MCU, 2.5€
+- Microswitch, 0.1€
+- 28BYJ 5V stepper motor + controller. 3.59€
+- Bearings 625-RS 5x16x5 x 4. 4.05€ 
+- Antenna 2.4GHz with pigtail. 1.6€
+- TP4056 USB 1A 5V Lithium Battery 18650 Charger module. 1.4€
+- 2 x Lithium Battery 18650. 5.42€
+- AMS1117-3.3V LDO regulator 0.23€
+- 4 x 100 kOhm resistors 0.1€
+- Total about: 16.5€ including shipment.
+
+Pipe threads ISO33x1.5
+Screw threads ISO M3x5
+
+
 # Updates to the code:
 
 I hate this editor, can not copy and paste text ...
