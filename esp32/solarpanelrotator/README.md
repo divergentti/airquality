@@ -13,9 +13,6 @@
 - 4 x 100 kOhm resistors 0.1€
 - Total about: 22.6€ including shipment.
 
-Pipe threads ISO33x1.5
-Screw threads ISO M3x5
-
 
 # Updates to the code:
 
