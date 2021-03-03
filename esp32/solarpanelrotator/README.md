@@ -11,7 +11,7 @@
 - 2 x Lithium Battery 18650. 5.42€
 - AMS1117-3.3V LDO regulator 0.23€
 - 4 x 100 kOhm resistors 0.1€
-- Total about: 16.5€ including shipment.
+- Total about: 22.6€ including shipment.
 
 Pipe threads ISO33x1.5
 Screw threads ISO M3x5
