@@ -4,6 +4,7 @@ I hate this editor, can not copy and paste text ...
 
 - 7.12.2020 Jari Hiltunen project start
 - 8.12.2020 Initial version ready before class splitting. Stepper shall follow the sun.
+- waiting parts to arrive from China
 - 17.2.2021 Added limiter switch operation. Limiter switch is installed so that turning counterclockwise switch
           puller pushes the switch down. Counterwise turn must be limited to maximum steps (about 340 degrees rotation).
           Added solarpanel voltage reading.
