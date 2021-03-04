@@ -172,10 +172,10 @@ class StepperMotor(object):
         self.southstep = SOUTH_STEP
         if self.southstep is not None:
             self.sw = self.southstep + (45 * self.steps_for_minute)
-            if self.sw > self.max_steps_to_rotate:
+            if self.sw > self.max_steps_to_rotate + 1:
                 self.sw = self. max_steps_to_rotate
             self.west = self.southstep + (90 * self.steps_for_minute)
-            if self.west > self.max_steps_to_rotate:
+            if self.west > self.max_steps_to_rotate + 1:
                 self.west = self.max_steps_to_rotate
             self.se = self.southstep - (45 * self.steps_for_minute)
             if self.se < 1:
@@ -210,7 +210,7 @@ class StepperMotor(object):
             self.steps_taken = 0
 
         if (overrideswitch is False) and (limiter_switch.value() == 1) and \
-                (self.steps_taken <= self.max_steps_to_rotate):
+                (self.steps_taken <= self.max_steps_to_rotate + 1):
             # switch = 1 means switch is open
             self.table_turning = True
             try:
@@ -225,7 +225,7 @@ class StepperMotor(object):
                 self.steps_taken -= 1
             self.table_turning = False
 
-        if (overrideswitch is True) and (self.steps_taken <= self.max_steps_to_rotate):
+        if (overrideswitch is True) and (self.steps_taken <= self.max_steps_to_rotate + 1):
             self.table_turning = True
             try:
                 self.motor.step(1, turn)
@@ -496,6 +496,7 @@ def main():
     global ULP_SLEEP_TIME
     global SOUTH_STEP
     global TURNTABLE_ZEROTIME
+    global MICROSWITCH_STEPS
 
     # TRY - EXCEPT catch during main() init
 
@@ -568,46 +569,20 @@ def main():
 
     # Normal rotation next day morning
     if (daytime is True) and (TURNTABLE_ZEROTIME is not None) and (localtime()[2] != LAST_UPTIME[2]):
-        voltage = solarpanelreader.read()
-        LAST_UPTIME = localtime()
-        if panel_motor.east is not None:
-            # Turn to east, panel shall be in the limiter already
+        f4.write("Next morning rotation begins.\n")
+        if (panel_motor.east is not None) and (panel_motor.steps_taken <= panel_motor.microswitch_steps):
+            panel_motor.turn_to_limiter()
             for i in range(1, panel_motor.east):
                 panel_motor.step("cw")
         else:
             panel_motor.turn_to_limiter()
-        # Check that we really got best voltage
-        if (solarpanelreader.read() < voltage) and (panel_motor.steps_taken > STEPPER_LAST_STEP):
-            if DEBUG_ENABLED == 1:
-                print("Rotated too much, rotating back half of east position!")
-            f4.write("Rotated too much, rotating back half of east position!\n")
-            for i in range(1, int(panel_motor.east / 2)):
-                panel_motor.step("ccw")
+        LAST_UPTIME = localtime()
 
-    # Calibrate again once a week
-    if (daytime is True) and (localtime()[2] - TURNTABLE_ZEROTIME[2] >= 7) and (localtime()[3] == 12):
-        f4.write("%s: Calibration begins\n" % str(localtime()))
-        panel_motor.search_best_voltage_position()
-        STEPPER_LAST_STEP = panel_motor.steps_taken
-        SOUTH_STEP = panel_motor.southstep
-        TURNTABLE_ZEROTIME = localtime()
-        if LAST_UPTIME is None:
-            LAST_UPTIME = localtime()
-        if DEBUG_ENABLED == 1:
-            print("Best position: %s/%s degrees, voltage %s, step %s." % (panel_motor.panel_time,
-                                                                          panel_motor.direction,
-                                                                          panel_motor.max_voltage,
-                                                                          panel_motor.step_max_index))
-        f4.write("Best position: %s/%s degrees, voltage %s, step %s.\n" % (panel_motor.panel_time,
-                                                                           panel_motor.direction,
-                                                                           panel_motor.max_voltage,
-                                                                           panel_motor.step_max_index))
     # Rotate turntable to limiter for night
-    if daytime is False:
+    if (daytime is False) and (panel_motor.steps_taken > panel_motor.microswitch_steps):
         f4.write("Nightime, turn to limiter\n")
         # Do not update LAST_UPTIME!
-        if STEPPER_LAST_STEP > MICROSWITCH_STEPS:
-            panel_motor.turn_to_limiter()
+        panel_motor.turn_to_limiter()
         STEPPER_LAST_STEP = panel_motor.steps_taken
 
     f4.write("Begin mqtt reporting\n")
