@@ -170,24 +170,6 @@ class StepperMotor(object):
         else:
             self.steps_taken = 0
         self.southstep = SOUTH_STEP
-        if self.southstep is not None:
-            self.sw = self.southstep + (45 * self.steps_for_minute)
-            if self.sw > self.max_steps_to_rotate + 1:
-                self.sw = self. max_steps_to_rotate
-            self.west = self.southstep + (90 * self.steps_for_minute)
-            if self.west > self.max_steps_to_rotate + 1:
-                self.west = self.max_steps_to_rotate
-            self.se = self.southstep - (45 * self.steps_for_minute)
-            if self.se < 1:
-                self.se = 1
-            self.east = self.southstep - (90 * self.steps_for_minute)
-            if self.east < 1:
-                self.east = 1
-        else:
-            self.sw = None
-            self.west = None
-            self.se = None
-            self.east = None
 
     def turn_to_south_step(self):
         if self.southstep is not None:
@@ -532,58 +514,45 @@ def main():
                                                                             panel_motor.direction,
                                                                             panel_motor.max_voltage,
                                                                             panel_motor.step_max_index)))
-
-        # Midday checkup for south position
-    if (daytime is True) and (SOUTH_STEP is None) and (TURNTABLE_ZEROTIME is not None) and (localtime()[3] == 12):
-        f4.write("%s: Southsteps setting\n" % str(localtime()))
-        panel_motor.search_best_voltage_position()
-        STEPPER_LAST_STEP = panel_motor.steps_taken
-        SOUTH_STEP = panel_motor.southstep
-        if LAST_UPTIME is None:
-            LAST_UPTIME = localtime()
-        if DEBUG_ENABLED == 1:
-            print("Best position: %s/%s degrees, voltage %s, step %s." % (panel_motor.panel_time,
-                                                                          panel_motor.direction,
-                                                                          panel_motor.max_voltage,
-                                                                          panel_motor.step_max_index))
-        f4.write(("Best position: %s/%s degrees, voltage %s, step %s.\n" % (panel_motor.panel_time,
-                                                                            panel_motor.direction,
-                                                                            panel_motor.max_voltage,
-                                                                            panel_motor.step_max_index)))
-
-    #  Normal rotation same day
-    if (daytime is True) and (TURNTABLE_ZEROTIME is not None) and (localtime()[2] == LAST_UPTIME[2]):
-        f4.write("%s: Normal rotation begings\n" % str(localtime()))
-        timediff_min = int((mktime(localtime()) - mktime(LAST_UPTIME)) / 60)
-        voltage = solarpanelreader.read()
-        LAST_UPTIME = localtime()
-        for i in range(1, timediff_min * panel_motor.steps_for_minute):
-            panel_motor.step("cw")
-        # Check that we really got best voltage
-        if (solarpanelreader.read() < voltage) and (panel_motor.steps_taken > STEPPER_LAST_STEP):
-            if DEBUG_ENABLED == 1:
-                print("Rotated too much, rotating back half of time difference!")
-            f4.write("Rotated too much, rotating back half of time difference!\n")
-            for i in range(1, int(timediff_min / 2) * panel_motor.steps_for_minute):
-                panel_motor.step("ccw")
-
-    # Normal rotation next day morning
-    if (daytime is True) and (TURNTABLE_ZEROTIME is not None) and (localtime()[2] != LAST_UPTIME[2]):
-        f4.write("Next morning rotation begins.\n")
-        if (panel_motor.east is not None) and (panel_motor.steps_taken <= panel_motor.microswitch_steps):
-            panel_motor.turn_to_limiter()
-            for i in range(1, panel_motor.east):
-                panel_motor.step("cw")
-        else:
-            panel_motor.turn_to_limiter()
-        LAST_UPTIME = localtime()
-
-    # Rotate turntable to limiter for night
-    if (daytime is False) and (panel_motor.steps_taken > panel_motor.microswitch_steps):
-        f4.write("Nightime, turn to limiter\n")
-        # Do not update LAST_UPTIME!
+    # rotate back to microswitch if needed:
+    if (daytime is True) and (STEPPER_LAST_STEP >= panel_motor.max_steps_to_rotate):
         panel_motor.turn_to_limiter()
         STEPPER_LAST_STEP = panel_motor.steps_taken
+
+    if (daytime is True) and (TURNTABLE_ZEROTIME is not None):
+        # Midday checkup for south position
+        if (SOUTH_STEP is None) and (localtime()[3] == 12):
+            f4.write("%s: Southsteps setting\n" % str(localtime()))
+            panel_motor.search_best_voltage_position()
+            STEPPER_LAST_STEP = panel_motor.steps_taken
+            SOUTH_STEP = panel_motor.southstep
+            if LAST_UPTIME is None:
+                LAST_UPTIME = localtime()
+            if DEBUG_ENABLED == 1:
+                print("Best position: %s/%s degrees, voltage %s, step %s." % (panel_motor.panel_time,
+                                                                              panel_motor.direction,
+                                                                              panel_motor.max_voltage,
+                                                                              panel_motor.step_max_index))
+            f4.write(("Best position: %s/%s degrees, voltage %s, step %s.\n" % (panel_motor.panel_time,
+                                                                                panel_motor.direction,
+                                                                                panel_motor.max_voltage,
+                                                                                panel_motor.step_max_index)))
+        else:
+            #  Normal rotation
+            f4.write("%s: Normal rotation begings\n" % str(localtime()))
+            timediff_min = int((mktime(localtime()) - mktime(LAST_UPTIME)) / 60)
+            if panel_motor.steps_taken + (timediff_min * panel_motor.steps_for_minute) >= \
+                    panel_motor.max_steps_to_rotate:
+                stepsafterlimiter = (panel_motor.steps_taken + (timediff_min * panel_motor.steps_for_minute)) - \
+                    panel_motor.max_steps_to_rotate
+                panel_motor.turn_to_limiter()
+                for i in range(1, stepsafterlimiter):
+                    panel_motor.step("cw")
+            else:
+                for i in range(1, timediff_min * panel_motor.steps_for_minute):
+                    panel_motor.step("cw")
+            STEPPER_LAST_STEP = panel_motor.steps_taken
+            LAST_UPTIME = localtime()
 
     f4.write("Begin mqtt reporting\n")
     mqtt_report()
@@ -635,10 +604,10 @@ def main():
     (year, month, mdate, hour, minute, second, wday, yday) = localtime()
     target_time = (year, month, mdate, 12, 0, second, wday, yday)
     seconds_to_midday = mktime(target_time) - mktime(localtime())
-    if (ULP_SLEEP_TIME >= 3600) and (seconds_to_midday > 0) and (seconds_to_midday <= 3600):
+    if (ULP_SLEEP_TIME >= 3600) and (seconds_to_midday > 0) and (seconds_to_midday < 3600):
         f4.write("ULP Sleep less than 3600\n")
         f4.close()
-        deepsleep(3500 * 1000)
+        deepsleep((seconds_to_midday - 120) * 1000)
     else:
         f4.write("ULP Sleep normal %s seconds\n" % str(ULP_SLEEP_TIME))
         f4.close()
