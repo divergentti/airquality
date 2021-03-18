@@ -143,10 +143,14 @@ class StepperMotor(object):
 
     """ ULN2003-based control, half steps. Gear ratio 0.5 : 1 """
 
-    def __init__(self, in1, in2, in3, in4, indelay):
+    def __init__(self, in1, in2, in3, in4, indelay, msw_steps=6, last_step=None, south_step=None):
         self.motor = Steppermotor.create(Pin(in1, Pin.OUT), Pin(in2, Pin.OUT), Pin(in3, Pin.OUT),
                                          Pin(in4, Pin.OUT), delay=indelay)
         self.stepdelay = indelay
+        self.microswitch_steps = msw_steps
+        self.southstep = south_step
+        self.steps_taken = last_step
+        self.solar_voltage = south_step
         self.solar_voltage = None
         self.battery_voltage = None
         self.steps_voltages = []
@@ -161,15 +165,6 @@ class StepperMotor(object):
         #  0.5 spur gear ratio (9:18 gears), half steps multiply with 2, ~ 1018 steps full round
         self.steps_for_minute = int((24 * 60) / (self.full_rotation * 2))  # 1440 / ~1018 ~ 1.4 steps per minute
         self.table_turning = False
-        if MICROSWITCH_STEPS is None:
-            self.microswitch_steps = 0
-        else:
-            self.microswitch_steps = MICROSWITCH_STEPS
-        if STEPPER_LAST_STEP is not None:
-            self.steps_taken = STEPPER_LAST_STEP
-        else:
-            self.steps_taken = 0
-        self.southstep = SOUTH_STEP
 
     def turn_to_south_step(self):
         if self.southstep is not None:
@@ -187,6 +182,9 @@ class StepperMotor(object):
 
         if DEBUG_ENABLED == 1:
             print('[Step#: %s Volts: %s]\r' % (self.steps_taken, self.solar_voltage), end="")
+
+        if self.steps_taken < 0:
+            self.steps_taken = 0
 
         if limiter_switch.value() == 0:
             self.steps_taken = 0
@@ -222,8 +220,6 @@ class StepperMotor(object):
             self.table_turning = False
 
     def turn_to_limiter(self, keepclosed=False):
-        global STEPPER_LAST_STEP
-        global MICROSWITCH_STEPS
         if DEBUG_ENABLED == 1:
             print("Starting rotation counterclockwise until limiter switch turns off...")
         starttime = ticks_ms()
@@ -239,8 +235,6 @@ class StepperMotor(object):
                 self.step("cw", overrideswitch=True)
                 self.microswitch_steps += 1
         self.table_turning = False
-        STEPPER_LAST_STEP = self.microswitch_steps
-        MICROSWITCH_STEPS = self.microswitch_steps
 
     def search_best_voltage_position(self):
         global TURNTABLE_ZEROTIME
@@ -443,7 +437,8 @@ limiter_switch = Pin(MICROSWITCH_PIN, Pin.IN, Pin.PULL_UP)
 f4.write("Limiter switch circuit initialized\n")
 
 try:
-    panel_motor = StepperMotor(STEPPER1_PIN1, STEPPER1_PIN2, STEPPER1_PIN3, STEPPER1_PIN4, STEPPER1_DELAY)
+    panel_motor = StepperMotor(STEPPER1_PIN1, STEPPER1_PIN2, STEPPER1_PIN3, STEPPER1_PIN4,
+                               STEPPER1_DELAY, last_step=STEPPER_LAST_STEP, south_step=SOUTH_STEP)
 except OSError as e:
     if DEBUG_ENABLED == 1:
         print("Check StepperMotor pins!!")
