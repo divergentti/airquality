@@ -37,6 +37,9 @@ I hate this editor, can not copy and paste text ...
 - 28.2.2021: Rootacause for seldom crashes is ntptime.settime() and now tried to catch error with another approach
 - 4.3.2021:  Simplified code and fixed ccw rotation bug if steps taken > 900
 - 5.3.2021:  Simplidied code, left east, west etc away. Now limiter switch is not considered to be in east. Installation of the panel is now free of directions.
+- 18.3.2021: Changed panel_motor object initialization and fixed error with step calculation. It seems that if panel is installed so that when limiter = on, steps 0, direction = east, south will be step 250 and west step 500. Perhaps easiest is to check manually directions and set south step based on that.
+
+Feel free to modify as needed. I leave this here, because operation for the BME280 part is the key and works for me. Enjoy!
 
 * Design video https://youtu.be/3X_NrbZY1hA
 * Latest 3D printable parts https://www.thingiverse.com/thing:4758620
