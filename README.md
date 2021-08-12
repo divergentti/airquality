@@ -11,9 +11,12 @@ Target is to use inexpensive sensors, which accuracy can be improved either in t
 
 Once system is ready and the data flows to the database, information can be analyzed further and perhaps calculate more intelligent alarms to protect people.
 
-This repository is maintained by Jari Hiltunen, Hanko, Finland. Besides python scripts, most of setups contain also 3D printable cases and drawings. Search them from Thingsverse https://www.thingiverse.com/divergentti/designs
+This repository is maintained by Jari Hiltunen, Salo, Finland. Besides python scripts, most of setups contain also 3D printable cases and drawings. Search them from Thingsverse https://www.thingiverse.com/divergentti/designs
 
 First version script variables, parameters and commenting are in Finnish. Use Google translate if needed.
+
+Project is paused.
+
 
 # Ilmanlaatu
 Tässä repositoriossa on pääosin ilmanlaatuun liittyviä python-scriptejä. Ilmanlaatuun liittyviä arvoja voidaan kerätä esimerkiksi mikrokontrollereilla kuten ESP32 ja micropython, tai esimerkiksi Raspberry PI:lla. Lähtökohtana on siirtää tiedot mqtt (IoT) avulla Influx-tietokantaan, josta tietoja voidaan analysoida esimerkiksi Grafanalla.
@@ -28,5 +31,6 @@ Järjestelmän tuottaessa riittävän luotettavaa dataa, voidaan sitä analysoid
 
 Ensimmäisissä scripteissä sekä muuttujat, parametrit että kommentit ovat suomeksi
 
-Tätä repositoriota ylläpitää Jari Hiltunen Hangosta. Sen lisäksi, että olen tehnyt nämä scriptit, olen tehnyt myös  3D-tulostimella tulostettavia koteloita. Näet ne osoitteesta https://www.thingiverse.com/divergentti/designs
+Tätä repositoriota ylläpitää Jari Hiltunen Salosta. Sen lisäksi, että olen tehnyt nämä scriptit, olen tehnyt myös  3D-tulostimella tulostettavia koteloita. Näet ne osoitteesta https://www.thingiverse.com/divergentti/designs
 
+Projekti on tauolla.
